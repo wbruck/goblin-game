@@ -1,4 +1,4 @@
-import type { GridData, Point } from "./grid";
+import type { CubeData, Tile } from "./cube";
 
 export type ActionKind =
   | "idle"
@@ -23,8 +23,7 @@ export const TRAIT_MAX = 255;
 export interface Goblin {
   id: number;
   name: string;
-  x: number;
-  y: number;
+  tile: Tile;
   /** 0 (full) to NEED_MAX (starving). */
   hunger: number;
   /** 0 (exhausted) to NEED_MAX (fresh). */
@@ -36,8 +35,8 @@ export interface Goblin {
   bravery: number;
   diligence: number;
   action: ActionKind;
-  target: Point | null;
-  path: Point[];
+  target: Tile | null;
+  path: Tile[];
   /** Resources carried back to the cave. */
   carrying: number;
   /** Ticks until the goblin reconsiders what it is doing. */
@@ -51,8 +50,7 @@ export type IncentiveKind = "food" | "shiny" | "drum";
 export interface Incentive {
   id: number;
   kind: IncentiveKind;
-  x: number;
-  y: number;
+  tile: Tile;
   /** Pull strength in tenths. Decays each tick; removed at zero. */
   strength: number;
   /** Remaining units for consumable incentives (food, shiny). */
@@ -78,7 +76,7 @@ export interface LogEvent {
 }
 
 export type Command =
-  | { type: "placeIncentive"; kind: IncentiveKind; x: number; y: number };
+  | { type: "placeIncentive"; kind: IncentiveKind; tile: Tile };
 
 /** A command together with the tick on which it was applied. */
 export interface RecordedCommand {
@@ -87,13 +85,16 @@ export interface RecordedCommand {
 }
 
 export interface WorldData {
-  version: 2;
+  version: 3;
   seed: number;
   startingGoblins: number;
+  /** Tiles per cube side. */
+  size: number;
   tick: number;
   rngState: number;
-  grid: GridData;
-  cave: Point;
+  grid: CubeData;
+  /** Cave tiles, where goblins eat, rest, deliver and hatch. */
+  cave: Tile[];
   goblins: Goblin[];
   incentives: Incentive[];
   hoard: Hoard;

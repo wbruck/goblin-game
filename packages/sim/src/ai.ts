@@ -1,10 +1,10 @@
-import { manhattan, Terrain, type Grid, type Point } from "./grid";
+import { type CubeGrid, type Tile } from "./cube";
 import type { Rng } from "./rng";
 import { NEED_MAX, TRAIT_MAX, type ActionKind, type Goblin, type Incentive } from "./types";
 
 export interface Choice {
   action: ActionKind;
-  target: Point | null;
+  target: Tile | null;
   incentiveId: number | null;
   score: number;
   /** Set when the goblin passed over an incentive it could have followed. */
@@ -12,9 +12,10 @@ export interface Choice {
 }
 
 export interface AiContext {
-  grid: Grid;
-  cave: Point;
-  resources: Point[];
+  grid: CubeGrid;
+  /** A cave tile to head for; the world picks the nearest for each goblin. */
+  cave: Tile;
+  resources: Tile[];
   incentives: Incentive[];
   hoardFood: number;
   rng: Rng;
@@ -32,6 +33,8 @@ export const SULK_MOOD = -40 * 100;
  *
  * Scores are doubles computed from integer state and the seeded rng with
  * only +, -, * and /, which IEEE 754 makes identical on every engine.
+ * Distances are cube-surface lower bounds; on a 4-cube the farthest tile
+ * is about 10 steps away, so distance penalties are scaled for that.
  */
 export function chooseAction(g: Goblin, ctx: AiContext): Choice {
   const candidates: Choice[] = [];
@@ -42,6 +45,8 @@ export function chooseAction(g: Goblin, ctx: AiContext): Choice {
   const greed = g.greed / TRAIT_MAX;
   const bravery = g.bravery / TRAIT_MAX;
   const diligence = g.diligence / TRAIT_MAX;
+  const far = 3 * ctx.grid.size; // roughly the longest trip on the cube
+  const dist = (t: Tile) => ctx.grid.distance(g.tile, t) / far;
 
   // Needs first. Like Oxygen Not Included, needs override everything else
   // when they get urgent, but goblins also drift toward them earlier.
@@ -50,9 +55,8 @@ export function chooseAction(g: Goblin, ctx: AiContext): Choice {
     candidates.push({ action: "eat", target: ctx.cave, incentiveId: null, score: atCave });
     for (const inc of ctx.incentives) {
       if (inc.kind !== "food" || inc.remaining <= 0) continue;
-      const dist = manhattan(g, inc);
-      const pull = hunger * 1.1 + 0.3 - dist / 60 + noise();
-      candidates.push({ action: "eat", target: { x: inc.x, y: inc.y }, incentiveId: inc.id, score: pull });
+      const pull = hunger * 1.1 + 0.3 - dist(inc.tile) * 0.8 + noise();
+      candidates.push({ action: "eat", target: inc.tile, incentiveId: inc.id, score: pull });
     }
   }
   if (energy < 0.4) {
@@ -68,12 +72,12 @@ export function chooseAction(g: Goblin, ctx: AiContext): Choice {
       score: 0.55 + g.carrying / 20 + diligence * 0.2 + noise(),
     });
   } else if (ctx.resources.length > 0 && !sulking) {
-    const nearest = nearestOf(g, ctx.resources, ctx.rng);
+    const nearest = nearestOf(ctx.grid, g.tile, ctx.resources, ctx.rng);
     candidates.push({
       action: "gather",
       target: nearest,
       incentiveId: null,
-      score: 0.35 + diligence * 0.4 - manhattan(g, nearest) / 80 + noise(),
+      score: 0.35 + diligence * 0.4 - dist(nearest) * 0.6 + noise(),
     });
   }
 
@@ -81,22 +85,20 @@ export function chooseAction(g: Goblin, ctx: AiContext): Choice {
   for (const inc of ctx.incentives) {
     const strength = inc.strength / 1000;
     if (inc.kind === "shiny" && inc.remaining > 0 && g.carrying === 0) {
-      const dist = manhattan(g, inc);
       candidates.push({
         action: "loot",
-        target: { x: inc.x, y: inc.y },
+        target: inc.tile,
         incentiveId: inc.id,
-        score: 0.2 + greed * 0.7 + strength / 2 - dist / 50 + noise(),
+        score: 0.2 + greed * 0.7 + strength / 2 - dist(inc.tile) + noise(),
       });
     }
     if (inc.kind === "drum") {
-      const dist = manhattan(g, inc);
       const fear = (1 - bravery) * 0.6;
       candidates.push({
         action: "rally",
-        target: { x: inc.x, y: inc.y },
+        target: inc.tile,
         incentiveId: inc.id,
-        score: 0.25 + bravery * 0.6 + strength / 2 - fear - dist / 50 + noise(),
+        score: 0.25 + bravery * 0.6 + strength / 2 - fear - dist(inc.tile) + noise(),
       });
     }
   }
@@ -104,7 +106,7 @@ export function chooseAction(g: Goblin, ctx: AiContext): Choice {
   // Doing nothing in particular is always on the table.
   candidates.push({
     action: "wander",
-    target: randomNearbyFloor(g, ctx.grid, ctx.rng),
+    target: randomNearbyFloor(g.tile, ctx.grid, ctx.rng),
     incentiveId: null,
     score: 0.3 + (sulking ? 0.4 : 0) + noise(),
   });
@@ -129,21 +131,24 @@ function refusalReason(g: Goblin, skipped: Choice, sulking: boolean, bravery: nu
   return `${g.name} wandered off instead of following the ${thing}`;
 }
 
-function nearestOf(from: Point, points: Point[], rng: Rng): Point {
+function nearestOf(grid: CubeGrid, from: Tile, points: Tile[], rng: Rng): Tile {
   // Among the few nearest, pick randomly so goblins spread out.
   const sorted = points
-    .map((p) => ({ p, d: manhattan(from, p) }))
+    .map((p) => ({ p, d: grid.distance(from, p) }))
     .sort((a, b) => a.d - b.d)
     .slice(0, 3)
     .map((e) => e.p);
   return rng.pick(sorted);
 }
 
-function randomNearbyFloor(from: Point, grid: Grid, rng: Rng): Point {
-  for (let i = 0; i < 8; i++) {
-    const x = from.x + rng.int(-4, 4);
-    const y = from.y + rng.int(-4, 4);
-    if (grid.isWalkable(x, y) && grid.get(x, y) !== Terrain.Wall) return { x, y };
+function randomNearbyFloor(from: Tile, grid: CubeGrid, rng: Rng): Tile {
+  // A short random walk across walkable tiles, edges included.
+  let t = from;
+  const steps = rng.int(1, 3);
+  for (let i = 0; i < steps; i++) {
+    const options = grid.neighbors(t);
+    if (options.length === 0) break;
+    t = rng.pick(options);
   }
-  return { x: from.x, y: from.y };
+  return t;
 }

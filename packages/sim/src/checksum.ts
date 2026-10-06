@@ -11,28 +11,30 @@ const ACTION_CODE: Record<Goblin["action"], number> = {
  * separately so the fixed record stays fixed.
  */
 export const GOBLIN_RECORD_FIELDS = [
-  "id", "x", "y", "hunger", "energy", "mood", "greed", "bravery", "diligence",
-  "action", "targetX", "targetY", "carrying", "commitment", "incentiveId", "pathLength",
+  "id", "face", "u", "v", "hunger", "energy", "mood", "greed", "bravery", "diligence",
+  "action", "targetFace", "targetU", "targetV", "carrying", "commitment", "incentiveId", "pathLength",
 ] as const;
 
 export function goblinRecord(g: Goblin): Int32Array {
   const r = new Int32Array(GOBLIN_RECORD_FIELDS.length);
   r[0] = g.id;
-  r[1] = g.x;
-  r[2] = g.y;
-  r[3] = g.hunger;
-  r[4] = g.energy;
-  r[5] = g.mood;
-  r[6] = g.greed;
-  r[7] = g.bravery;
-  r[8] = g.diligence;
-  r[9] = ACTION_CODE[g.action];
-  r[10] = g.target ? g.target.x : -1;
-  r[11] = g.target ? g.target.y : -1;
-  r[12] = g.carrying;
-  r[13] = g.commitment;
-  r[14] = g.incentiveId ?? -1;
-  r[15] = g.path.length;
+  r[1] = g.tile.f;
+  r[2] = g.tile.u;
+  r[3] = g.tile.v;
+  r[4] = g.hunger;
+  r[5] = g.energy;
+  r[6] = g.mood;
+  r[7] = g.greed;
+  r[8] = g.bravery;
+  r[9] = g.diligence;
+  r[10] = ACTION_CODE[g.action];
+  r[11] = g.target ? g.target.f : -1;
+  r[12] = g.target ? g.target.u : -1;
+  r[13] = g.target ? g.target.v : -1;
+  r[14] = g.carrying;
+  r[15] = g.commitment;
+  r[16] = g.incentiveId ?? -1;
+  r[17] = g.path.length;
   return r;
 }
 
@@ -58,13 +60,13 @@ export class Hasher {
 
   goblin(g: Goblin): this {
     this.ints(goblinRecord(g));
-    for (const p of g.path) this.int(p.x).int(p.y);
+    for (const p of g.path) this.int(p.f).int(p.u).int(p.v);
     return this;
   }
 
   incentive(inc: Incentive): this {
     const kind = inc.kind === "food" ? 0 : inc.kind === "shiny" ? 1 : 2;
-    return this.int(inc.id).int(kind).int(inc.x).int(inc.y).int(inc.strength).int(inc.remaining);
+    return this.int(inc.id).int(kind).int(inc.tile.f).int(inc.tile.u).int(inc.tile.v).int(inc.strength).int(inc.remaining);
   }
 
   digest(): number {

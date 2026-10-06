@@ -1,25 +1,25 @@
-import { Grid, manhattan, type Point } from "./grid";
+import { CubeGrid, sameTile, type Tile } from "./cube";
 
 /**
- * Plain A* on the grid with a binary heap. Good for a few dozen goblins.
+ * Plain A* over cube tiles with a binary heap. Good for a few dozen goblins.
  * When many goblins share one destination (a loot pile, a war drum) this
  * should be replaced by a flow field per incentive; keep callers talking
  * to "next step toward target" so that swap is local.
  */
-export function findPath(grid: Grid, start: Point, goal: Point): Point[] | null {
-  if (!grid.isWalkable(goal.x, goal.y)) return null;
-  if (start.x === goal.x && start.y === goal.y) return [];
+export function findPath(grid: CubeGrid, start: Tile, goal: Tile): Tile[] | null {
+  if (!grid.isWalkable(goal)) return null;
+  if (sameTile(start, goal)) return [];
 
-  const size = grid.width * grid.height;
+  const size = grid.tileCount;
   const gScore = new Float64Array(size).fill(Infinity);
   const cameFrom = new Int32Array(size).fill(-1);
   const closed = new Uint8Array(size);
 
   const open = new MinHeap();
-  const startIdx = grid.index(start.x, start.y);
-  const goalIdx = grid.index(goal.x, goal.y);
+  const startIdx = grid.index(start);
+  const goalIdx = grid.index(goal);
   gScore[startIdx] = 0;
-  open.push(startIdx, manhattan(start, goal));
+  open.push(startIdx, grid.distance(start, goal));
 
   while (open.size > 0) {
     const current = open.pop();
@@ -27,30 +27,28 @@ export function findPath(grid: Grid, start: Point, goal: Point): Point[] | null 
     if (closed[current]) continue;
     closed[current] = 1;
 
-    const cx = current % grid.width;
-    const cy = (current - cx) / grid.width;
+    const ct = grid.tileAt(current);
     const g = gScore[current] as number;
 
-    for (const n of grid.neighbors(cx, cy)) {
-      const ni = grid.index(n.x, n.y);
+    for (const n of grid.neighbors(ct)) {
+      const ni = grid.index(n);
       if (closed[ni]) continue;
       const tentative = g + 1;
       if (tentative < (gScore[ni] as number)) {
         gScore[ni] = tentative;
         cameFrom[ni] = current;
-        open.push(ni, tentative + manhattan(n, goal));
+        open.push(ni, tentative + grid.distance(n, goal));
       }
     }
   }
   return null;
 }
 
-function reconstruct(grid: Grid, cameFrom: Int32Array, goalIdx: number): Point[] {
-  const path: Point[] = [];
+function reconstruct(grid: CubeGrid, cameFrom: Int32Array, goalIdx: number): Tile[] {
+  const path: Tile[] = [];
   let cur = goalIdx;
   while (cur !== -1) {
-    const x = cur % grid.width;
-    path.push({ x, y: (cur - x) / grid.width });
+    path.push(grid.tileAt(cur));
     cur = cameFrom[cur] as number;
   }
   path.reverse();

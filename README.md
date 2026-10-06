@@ -5,6 +5,9 @@ A web game about overseeing an unruly goblin hoard. The hoard grows with
 The overseer never gives orders: you place food, shinies, and war drums on
 the board, and each goblin decides for itself whether to care.
 
+The board is a cube, 4 tiles to a side, and goblins walk across the edges.
+Drag the cube to spin it, or use the arrow buttons.
+
 It is not an idle game. You play forward at up to 64x speed and bank up to
 12 hours of game time per segment. Every move is recorded with its tick,
 so a later server can replay the segment with other players' moves and
@@ -42,6 +45,9 @@ Saves live in the browser's localStorage, so progress is per browser.
 
 ## How the simulation works
 
+- The board is the surface of a cube with N tiles per side (N = 4). A tile
+  is (face, u, v); internally it is a surface voxel plus a normal, which is
+  what makes stepping across an edge a one-line rule.
 - One tick is 250 ms of game time. The client advances the sim from an
   accumulator driven by requestAnimationFrame and renders with interpolation.
 - All randomness goes through a seeded generator and all goblin state is

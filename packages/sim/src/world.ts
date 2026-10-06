@@ -1,6 +1,6 @@
 import { chooseAction } from "./ai";
 import { Hasher } from "./checksum";
-import { Grid, Terrain, type Point } from "./grid";
+import { CubeGrid, FACE_NAMES, sameTile, Terrain, type Tile } from "./cube";
 import { generateMap } from "./mapgen";
 import { goblinName } from "./names";
 import { findPath } from "./pathfinding";
@@ -21,7 +21,8 @@ import {
 
 export const TICK_MS = 250;
 export const TICKS_PER_SECOND = 1000 / TICK_MS;
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
+export const DEFAULT_CUBE_SIZE = 4;
 
 const LOG_LIMIT = 200;
 const CARRY_CAPACITY = 6;
@@ -60,25 +61,27 @@ const INCENTIVE_DEFAULTS: Record<IncentiveKind, { strength: number; decay: numbe
 export class World {
   readonly seed: number;
   readonly startingGoblins: number;
+  readonly size: number;
   tick: number;
   rng: Rng;
-  grid: Grid;
-  cave: Point;
+  grid: CubeGrid;
+  cave: Tile[];
   goblins: Goblin[];
   incentives: Incentive[];
   hoard: Hoard;
   log: LogEvent[];
   history: RecordedCommand[];
   private nextId: number;
-  private resourceTiles: Point[];
+  private resourceTiles: Tile[];
   private pendingCommands: Command[] = [];
 
   private constructor(d: WorldData) {
     this.seed = d.seed;
     this.startingGoblins = d.startingGoblins;
+    this.size = d.size;
     this.tick = d.tick;
     this.rng = Rng.fromState(d.rngState);
-    this.grid = Grid.fromData(d.grid);
+    this.grid = CubeGrid.fromData(d.grid);
     this.cave = d.cave;
     this.goblins = d.goblins;
     this.incentives = d.incentives;
@@ -89,13 +92,14 @@ export class World {
     this.resourceTiles = this.grid.findAll(Terrain.Resource);
   }
 
-  static create(seed: number, startingGoblins = 6): World {
+  static create(seed: number, startingGoblins = 6, size = DEFAULT_CUBE_SIZE): World {
     const rng = new Rng(seed);
-    const { grid, cave } = generateMap(rng);
+    const { grid, cave } = generateMap(rng, size);
     const w = new World({
       version: SAVE_VERSION,
       seed,
       startingGoblins,
+      size,
       tick: 0,
       rngState: rng.getState(),
       grid: grid.toData(),
@@ -118,8 +122,8 @@ export class World {
    * (default: the tick after the last command). This is the server's job
    * later; today it verifies saves and proves determinism in tests.
    */
-  static replay(seed: number, history: RecordedCommand[], toTick?: number, startingGoblins = 6): World {
-    const w = World.create(seed, startingGoblins);
+  static replay(seed: number, history: RecordedCommand[], toTick?: number, startingGoblins = 6, size = DEFAULT_CUBE_SIZE): World {
+    const w = World.create(seed, startingGoblins, size);
     const last = history[history.length - 1];
     const end = toTick ?? (last ? last.tick + 1 : 0);
     let i = 0;
@@ -143,6 +147,7 @@ export class World {
       version: SAVE_VERSION,
       seed: this.seed,
       startingGoblins: this.startingGoblins,
+      size: this.size,
       tick: this.tick,
       rngState: this.rng.getState(),
       grid: this.grid.toData(),
@@ -189,14 +194,14 @@ export class World {
   private applyCommands(): void {
     for (const cmd of this.pendingCommands) {
       this.history.push({ tick: this.tick, command: cmd });
-      if (cmd.type === "placeIncentive") this.placeIncentive(cmd.kind, cmd.x, cmd.y);
+      if (cmd.type === "placeIncentive") this.placeIncentive(cmd.kind, cmd.tile);
     }
     this.pendingCommands = [];
   }
 
-  private placeIncentive(kind: IncentiveKind, x: number, y: number): void {
+  private placeIncentive(kind: IncentiveKind, tile: Tile): void {
     const cost = INCENTIVE_COST[kind];
-    if (!this.grid.isWalkable(x, y)) {
+    if (!this.grid.isWalkable(tile)) {
       this.addLog(`You cannot put a ${kind} pile inside a wall.`, "overseer");
       return;
     }
@@ -206,9 +211,9 @@ export class World {
     }
     this.hoard.effort -= cost;
     const def = INCENTIVE_DEFAULTS[kind];
-    this.incentives.push({ id: this.nextId++, kind, x, y, strength: def.strength, remaining: def.remaining });
+    this.incentives.push({ id: this.nextId++, kind, tile: { ...tile }, strength: def.strength, remaining: def.remaining });
     const what = kind === "drum" ? "a war drum" : `a ${kind} pile`;
-    this.addLog(`The overseer placed ${what} at ${x},${y}.`, "overseer");
+    this.addLog(`The overseer placed ${what} on the ${FACE_NAMES[tile.f]} face at ${tile.u},${tile.v}.`, "overseer");
   }
 
   private decayIncentives(): void {
@@ -232,9 +237,7 @@ export class World {
     }
 
     if (g.path.length > 0) {
-      const next = g.path.shift() as Point;
-      g.x = next.x;
-      g.y = next.y;
+      g.tile = g.path.shift() as Tile;
       if (g.path.length === 0 && g.target && !this.atTarget(g)) g.commitment = 0;
       return;
     }
@@ -246,7 +249,7 @@ export class World {
   private decide(g: Goblin): void {
     const choice = chooseAction(g, {
       grid: this.grid,
-      cave: this.cave,
+      cave: this.nearestCave(g.tile),
       resources: this.resourceTiles,
       incentives: this.incentives,
       hoardFood: this.hoard.food,
@@ -259,7 +262,7 @@ export class World {
     g.path = [];
     if (choice.refused && this.rng.chance(0.15)) this.addLog(choice.refused, "refusal");
     if (choice.target && !this.atTarget(g)) {
-      const path = findPath(this.grid, g, choice.target);
+      const path = findPath(this.grid, g.tile, choice.target);
       if (path === null) {
         g.action = "idle";
         g.target = null;
@@ -272,19 +275,32 @@ export class World {
   }
 
   private atTarget(g: Goblin): boolean {
-    return g.target !== null && g.x === g.target.x && g.y === g.target.y;
+    return g.target !== null && sameTile(g.tile, g.target);
+  }
+
+  private nearestCave(from: Tile): Tile {
+    let best = this.cave[0] as Tile;
+    let bestD = Infinity;
+    for (const c of this.cave) {
+      const d = this.grid.distance(from, c);
+      if (d < bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    return best;
   }
 
   private performAction(g: Goblin): void {
     switch (g.action) {
       case "gather": {
-        if (this.grid.get(g.x, g.y) !== Terrain.Resource) break;
+        if (this.grid.get(g.tile) !== Terrain.Resource) break;
         if (this.rng.chance(0.25 + (g.diligence / TRAIT_MAX) * 0.25)) g.carrying++;
         if (g.carrying >= CARRY_CAPACITY) g.commitment = 0;
         break;
       }
       case "deliver": {
-        if (this.grid.get(g.x, g.y) !== Terrain.Cave) break;
+        if (this.grid.get(g.tile) !== Terrain.Cave) break;
         this.hoard.effort += g.carrying;
         this.hoard.lifetimeEffort += g.carrying;
         // Some hauls turn up something edible, so a working hoard feeds itself.
@@ -300,7 +316,7 @@ export class World {
           inc.remaining--;
           g.hunger = Math.max(0, g.hunger - 60 * NEED_SCALE);
           g.mood = Math.min(NEED_MAX, g.mood + 10 * NEED_SCALE);
-        } else if (this.grid.get(g.x, g.y) === Terrain.Cave && this.hoard.food > 0) {
+        } else if (this.grid.get(g.tile) === Terrain.Cave && this.hoard.food > 0) {
           this.hoard.food--;
           g.hunger = Math.max(0, g.hunger - 50 * NEED_SCALE);
         } else {
@@ -353,8 +369,7 @@ export class World {
     const g: Goblin = {
       id: this.nextId++,
       name: goblinName(this.rng.int(0, 999), this.rng.int(0, 999)),
-      x: this.cave.x,
-      y: this.cave.y,
+      tile: { ...this.rng.pick(this.cave) },
       hunger: this.rng.int(10, 40) * NEED_SCALE,
       energy: this.rng.int(60, 100) * NEED_SCALE,
       mood: this.rng.int(-10, 30) * NEED_SCALE,

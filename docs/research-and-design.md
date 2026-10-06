@@ -74,17 +74,22 @@ Bit-packing (for example 8 bits of hunger, 8 of energy, 4 of action, and so on i
 
 ## 3. What the research says about the board and the autonomous goblins
 
-### 3.1 Grid representation
+### 3.1 Board representation: a cube (revised 2026-10-06)
 
-- Square grid stored as flat typed arrays (terrain, occupancy, item layer). Index is `y * width + x`. This is the standard for tile games and is what flow-field and A* implementations expect.
-- Start with a single map around 48 by 32 tiles. Rival hoard camps sit at the edges. Expand by unlocking regions later rather than by making the whole map large from the start.
-- Separate the **simulation grid** (what the sim knows) from the **render grid** (what is drawn). The sim must not depend on the renderer, because the sim will later run on a server.
+The board is the surface of a cube with N tiles per side, six faces of N by N tiles, 6N² in all. N starts at 4 (96 tiles). Goblins walk across face edges where the tiles touch.
+
+- **Addressing.** A tile is (face, u, v). Face order is front, right, back, left, top, bottom. On the four side faces v runs downward and u runs clockwise seen from above, so walking in +u around the equator visits faces 0, 1, 2, 3 and returns home after 4N steps.
+- **Edge crossing without an adjacency table.** Internally a tile is a surface voxel of an N³ block plus an outward normal. Stepping in a tangent direction either lands on the next voxel of the same face or, at an edge, on the same voxel's other exposed face, whose normal is the step direction. This single rule covers all 12 edges and all orientations, and tests assert that every tile has exactly four distinct neighbours and that adjacency is symmetric at sizes 1, 2, 4 and 5.
+- **Distance.** The lower bound on steps between two tiles is the Manhattan distance between their voxels, because a step moves the voxel by at most one unit along one axis and an edge crossing moves it by zero. A* uses it as its heuristic; the AI uses it, scaled by the cube size, for its distance penalties.
+- **Storage.** Terrain is a flat typed array indexed by face, then v, then u. Entities carry a tile. Nothing in the simulation depends on the renderer.
+- **Growing the board.** N is a parameter of world creation and is stored in the save. Larger cubes and, later, several cubes (one per hoard, connected by raids) are both possible without changing the addressing.
+- **Why a cube rather than a flat grid.** There are no map edges for goblins to pile up against, every direction is equally interesting, and the overseer's attention is naturally limited to what they can see, which fits the indirect-control fantasy: things happen on the far side.
 
 ### 3.2 Pathfinding
 
-- **A\*** per goblin is fine for a few dozen agents and is the simplest to get right. Use it for v1.
+- **A\*** per goblin over cube tiles is fine for a few dozen agents and is the simplest to get right. Use it for v1.
 - **Flow fields** become the better fit once many goblins share destinations (a loot pile, a war drum, an enemy camp). Fieldrunners 2 used flow fields plus steering to move thousands of agents on mobile. Each incentive the overseer places can own one flow field computed once per change. This maps directly onto the indirect-control design: an incentive is literally a field that pulls goblins. Plan the movement code so a goblin follows a "direction provider" that can be an A\* path today and a flow field later.
-- Avoid diagonal corner cutting through walls. Use 8-direction movement with a corner check, or 4-direction movement in v1.
+- Movement is 4-directional. Diagonals are not defined across cube edges, so they are left out rather than special-cased.
 
 ### 3.3 How goblins decide what to do
 
@@ -150,7 +155,7 @@ packages/
 | PixiJS v8 | WebGL and WebGPU renderer, very fast batching, good TypeScript, still "just a renderer" so it does not dictate architecture | Another dependency and a learning curve; overkill until sprite counts climb |
 | Phaser 4 | Full engine: scenes, sprites, tweens, audio, input. Released April 2026 with a new WebGL renderer | Wants to own the game loop and scene lifecycle, which fights the "sim is independent of renderer" rule; heavier bundle |
 
-**Recommendation.** Start with plain Canvas 2D behind a small `Renderer` interface. The sim is the hard part and the thing that has to be right for replay and multiplayer. If sprite counts or effects outgrow Canvas 2D, swap in PixiJS behind the same interface. Phaser is not recommended because the simulation must not live inside an engine's update loop.
+**Recommendation.** Start with plain Canvas 2D behind a small `Renderer` interface. The cube is drawn with a software orthographic projection: rotate each face by the view, cull faces whose normal points away, draw the rest tile by tile as projected quads, and pick tiles by point-in-quad against the same projection. This is a few dozen lines and needs no WebGL at N = 4; move to PixiJS or Three.js only if N grows large or lighting and effects are wanted. The sim is the hard part and the thing that has to be right for replay and multiplayer. If sprite counts or effects outgrow Canvas 2D, swap in PixiJS behind the same interface. Phaser is not recommended because the simulation must not live inside an engine's update loop.
 
 For UI chrome (panels, the segment summary, the event log) use plain DOM with TypeScript. Add a UI framework only if the panels get complicated.
 
@@ -158,7 +163,7 @@ Entity-component libraries (bitECS, Miniplex) were considered. The goblin count 
 
 ## 6. Proposed v1 scope (playable prototype)
 
-1. Grid map with terrain, a hoard cave, a few resource tiles, one rival camp.
+1. Cube board with terrain, a hoard cave on the front face, resource tiles on every face, one rival camp.
 2. 5 to 20 goblins with needs, temperament, utility-based action choice, A\* movement.
 3. Effort production, hoard growth (new goblins hatch when effort crosses thresholds).
 4. Overseer tools: place food pile, place loot pile, place war drum. Each costs effort and decays.
@@ -168,9 +173,9 @@ Entity-component libraries (bitECS, Miniplex) were considered. The goblin count 
 
 ## 7. What the scaffold does today and what was measured
 
-The scaffold in `packages/sim` and `packages/client` implements sections 2, 3 and 4 at prototype depth: grid, A\*, utility AI with refusals, three incentives (food pile, shiny pile, war drum), effort and hatching, seeded determinism with integer state, a tick-stamped command history, replay from seed plus history, checksums, save and load, speed control and the 12-hour segment bank. Rival hoards, fighting, events and the server reconciliation are not built yet.
+The scaffold in `packages/sim` and `packages/client` implements sections 2, 3 and 4 at prototype depth: cube board with edge crossing, A\*, utility AI with refusals, three incentives (food pile, shiny pile, war drum), effort and hatching, seeded determinism with integer state, a tick-stamped command history, replay from seed plus history, checksums, save and load, speed control and the 12-hour segment bank. Rival hoards, fighting, events and the server reconciliation are not built yet.
 
-Measured on this container with the default map and starting hoard of 6:
+Measured on this container with the earlier 48 by 32 flat map and starting hoard of 6 (the 4-cube is 96 tiles, so replays are now far cheaper):
 
 | Game time replayed | Hoard size | Replay time in Node | Replay time in headless Chromium |
 | --- | --- | --- | --- |
@@ -184,7 +189,7 @@ Balance is untuned. Growth over 12 hours is roughly logarithmic because the hatc
 ## 8. Open questions for later
 
 - Prestige or reset loop: does the hoard "migrate" to a new cave with bonuses? Research says a first reset within the first hour is important, so decide before balancing.
-- How large can the map get before flow fields are required?
+- How large can the cube get before flow fields are required, and whether each rival hoard lives on its own cube.
 - What the server may change during reconciliation, and how losses per segment are bounded so a player never returns to a wiped hoard.
 - Art direction and whether a tile set is hand-drawn or generated.
 

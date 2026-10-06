@@ -1,61 +1,59 @@
-import { Grid, Terrain, type Point } from "./grid";
+import { CubeGrid, Terrain, type Tile } from "./cube";
 import type { Rng } from "./rng";
 
 export interface GeneratedMap {
-  grid: Grid;
-  cave: Point;
+  grid: CubeGrid;
+  cave: Tile[];
 }
 
 /**
- * A small starting map: open floor, a few wall clumps, resource patches,
- * and the hoard's cave near the centre. Deterministic given the rng.
+ * A starting cube: the hoard's cave is a block in the middle of the front
+ * face, with scattered walls and resource patches on every face. Any
+ * walkable tile the goblins could not reach is turned into wall so the
+ * board never has stranded pockets. Deterministic given the rng.
  */
-export function generateMap(rng: Rng, width = 48, height = 32): GeneratedMap {
-  const grid = new Grid(width, height);
+export function generateMap(rng: Rng, size = 4): GeneratedMap {
+  const grid = new CubeGrid(size);
 
-  for (let x = 0; x < width; x++) {
-    grid.set(x, 0, Terrain.Wall);
-    grid.set(x, height - 1, Terrain.Wall);
-  }
-  for (let y = 0; y < height; y++) {
-    grid.set(0, y, Terrain.Wall);
-    grid.set(width - 1, y, Terrain.Wall);
-  }
-
-  const cave: Point = { x: Math.floor(width / 2), y: Math.floor(height / 2) };
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) grid.set(cave.x + dx, cave.y + dy, Terrain.Cave);
-  }
-
-  const clumps = Math.floor((width * height) / 90);
-  for (let i = 0; i < clumps; i++) {
-    const cx = rng.int(2, width - 3);
-    const cy = rng.int(2, height - 3);
-    const r = rng.int(1, 2);
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        const x = cx + dx;
-        const y = cy + dy;
-        if (!grid.inBounds(x, y)) continue;
-        if (Math.abs(x - cave.x) <= 3 && Math.abs(y - cave.y) <= 3) continue;
-        if (rng.chance(0.7)) grid.set(x, y, Terrain.Wall);
-      }
+  const cave: Tile[] = [];
+  const lo = Math.floor((size - 1) / 2);
+  const hi = Math.floor(size / 2);
+  for (let v = lo; v <= hi; v++) {
+    for (let u = lo; u <= hi; u++) {
+      const t = { f: 0, u, v };
+      grid.set(t, Terrain.Cave);
+      cave.push(t);
     }
   }
 
-  const patches = Math.floor((width * height) / 150);
-  for (let i = 0; i < patches; i++) {
-    const cx = rng.int(2, width - 3);
-    const cy = rng.int(2, height - 3);
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const x = cx + dx;
-        const y = cy + dy;
-        if (!grid.inBounds(x, y) || grid.get(x, y) !== Terrain.Floor) continue;
-        if (Math.abs(x - cave.x) <= 2 && Math.abs(y - cave.y) <= 2) continue;
-        if (rng.chance(0.6)) grid.set(x, y, Terrain.Resource);
+  const wallChance = 0.1;
+  const resourceChance = 0.18;
+  for (let i = 0; i < grid.tileCount; i++) {
+    const t = grid.tileAt(i);
+    if (grid.get(t) !== Terrain.Floor) continue;
+    // Keep the ring around the cave clear so goblins can always leave.
+    if (t.f === 0 && Math.abs(t.u - lo) <= 1 && Math.abs(t.v - lo) <= 1) continue;
+    const roll = rng.next();
+    if (roll < wallChance) grid.set(t, Terrain.Wall);
+    else if (roll < wallChance + resourceChance) grid.set(t, Terrain.Resource);
+  }
+
+  // Seal off anything unreachable from the cave.
+  const reach = new Uint8Array(grid.tileCount);
+  const stack = cave.map((t) => grid.index(t));
+  for (const i of stack) reach[i] = 1;
+  while (stack.length > 0) {
+    const i = stack.pop() as number;
+    for (const n of grid.neighbors(grid.tileAt(i))) {
+      const ni = grid.index(n);
+      if (!reach[ni]) {
+        reach[ni] = 1;
+        stack.push(ni);
       }
     }
+  }
+  for (let i = 0; i < grid.tileCount; i++) {
+    if (!reach[i] && grid.terrain[i] !== Terrain.Wall) grid.terrain[i] = Terrain.Wall;
   }
 
   return { grid, cave };

@@ -21,6 +21,14 @@
       </header>
       <main id="board-wrap">
         <canvas id="board"></canvas>
+        <div id="spin">
+          <button data-spin="left" title="Spin left">&#9664;</button>
+          <button data-spin="up" title="Tilt up">&#9650;</button>
+          <button data-spin="down" title="Tilt down">&#9660;</button>
+          <button data-spin="right" title="Spin right">&#9654;</button>
+          <button data-spin="home" title="Reset view">&#8634;</button>
+        </div>
+        <div id="board-hint">Drag to spin the cube. Click a tile to place. <span id="face-label"></span></div>
       </main>
       <aside id="side">
         <section id="segment">
@@ -31,7 +39,7 @@
         </section>
         <section id="tools">
           <h2>Overseer</h2>
-          <p class="hint">Pick a thing to place, then click a tile. Goblins decide for themselves whether to care.</p>
+          <p class="hint">Pick a thing to place, then click a tile on any face. Goblins decide for themselves whether to care, and they walk across edges.</p>
           <div id="tool-buttons"></div>
         </section>
         <section id="log-section">

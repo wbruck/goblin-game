@@ -1,5 +1,5 @@
-import { INCENTIVE_COST, SULK_MOOD, TICK_MS, World, type IncentiveKind } from "@goblin/sim";
-import { Renderer } from "./renderer";
+import { FACE_NAMES, INCENTIVE_COST, SULK_MOOD, TICK_MS, World, type IncentiveKind, type Tile } from "@goblin/sim";
+import { Renderer, type View } from "./renderer";
 import { clear, load, save } from "./storage";
 
 const canvas = document.getElementById("board") as HTMLCanvasElement;
@@ -13,6 +13,8 @@ const overlayEl = document.getElementById("overlay") as HTMLDivElement;
 const resetBtn = document.getElementById("reset") as HTMLButtonElement;
 const verifyBtn = document.getElementById("verify") as HTMLButtonElement;
 const verifyResult = document.getElementById("verify-result") as HTMLDivElement;
+const spinEl = document.getElementById("spin") as HTMLDivElement;
+const faceLabel = document.getElementById("face-label") as HTMLSpanElement;
 
 /** One segment banks this much game time before it must be submitted. */
 const SEGMENT_TICKS = 12 * 60 * 60 * (1000 / TICK_MS);
@@ -26,7 +28,12 @@ let world: World;
 let segmentStartTick = 0;
 let speed = 1;
 let tool: IncentiveKind | null = null;
-let hover: { x: number; y: number } | null = null;
+let hover: Tile | null = null;
+/** Current and target view. The view eases toward the target each frame. */
+const view: View = { yaw: 0.6, pitch: 0.45 };
+const targetView: View = { yaw: 0.6, pitch: 0.45 };
+const PITCH_LIMIT = 1.4;
+let drag: { x: number; y: number; moved: boolean; yaw: number; pitch: number } | null = null;
 let accumulator = 0;
 let lastFrame = 0;
 let lastSave = 0;
@@ -56,7 +63,7 @@ function frame(now: number): void {
     accumulator += dt * speed;
     const deadline = performance.now() + STEP_BUDGET_MS;
     while (accumulator >= TICK_MS) {
-      world.step();
+        world.step();
       accumulator -= TICK_MS;
       if (segmentFull()) {
         accumulator = 0;
@@ -72,7 +79,9 @@ function frame(now: number): void {
     }
   }
 
-  renderer.draw(world, speed > 0 ? accumulator / TICK_MS : 0, hover);
+  view.yaw += (targetView.yaw - view.yaw) * 0.2;
+  view.pitch += (targetView.pitch - view.pitch) * 0.2;
+  renderer.draw(world, speed > 0 ? accumulator / TICK_MS : 0, hover, view);
   updateStats();
   updateLog();
   if (now - lastSave > SAVE_INTERVAL_MS) {
@@ -142,6 +151,7 @@ function updateStats(): void {
     const k = el.dataset.kind as IncentiveKind;
     el.disabled = world.hoard.effort < INCENTIVE_COST[k];
   }
+  faceLabel.textContent = hover ? `${FACE_NAMES[hover.f]} ${hover.u},${hover.v}` : "";
   const banked = world.tick - segmentStartTick;
   bankEl.innerHTML = `Banked <b>${fmtGameTime(banked)}</b> of 12h game time. <b>${world.history.length}</b> moves recorded. Tick ${world.tick}.`;
   bankBar.value = banked / SEGMENT_TICKS;
@@ -155,16 +165,48 @@ function updateLog(): void {
   logEl.innerHTML = recent.map((e) => `<li class="${e.kind}">${escapeHtml(e.text)}</li>`).join("");
 }
 
+canvas.addEventListener("pointerdown", (ev) => {
+  canvas.setPointerCapture(ev.pointerId);
+  drag = { x: ev.clientX, y: ev.clientY, moved: false, yaw: targetView.yaw, pitch: targetView.pitch };
+});
 canvas.addEventListener("pointermove", (ev) => {
-  hover = renderer.tileAt(ev.clientX, ev.clientY, world);
+  if (drag) {
+    const dx = ev.clientX - drag.x;
+    const dy = ev.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) > 4) drag.moved = true;
+    if (drag.moved) {
+      targetView.yaw = drag.yaw + dx * 0.01;
+      targetView.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, drag.pitch + dy * 0.01));
+      view.yaw = targetView.yaw;
+      view.pitch = targetView.pitch;
+      hover = null;
+      return;
+    }
+  }
+  hover = renderer.pick(ev.clientX, ev.clientY, world, view);
+});
+canvas.addEventListener("pointerup", (ev) => {
+  const wasDrag = drag?.moved ?? false;
+  drag = null;
+  if (wasDrag) return;
+  const tile = renderer.pick(ev.clientX, ev.clientY, world, view);
+  if (!tile || !tool) return;
+  world.enqueue({ type: "placeIncentive", kind: tool, tile });
 });
 canvas.addEventListener("pointerleave", () => {
   hover = null;
 });
-canvas.addEventListener("pointerdown", (ev) => {
-  const tile = renderer.tileAt(ev.clientX, ev.clientY, world);
-  if (!tile || !tool) return;
-  world.enqueue({ type: "placeIncentive", kind: tool, x: tile.x, y: tile.y });
+spinEl.addEventListener("click", (ev) => {
+  const b = (ev.target as HTMLElement).closest("button");
+  if (!b) return;
+  const quarter = Math.PI / 2;
+  switch (b.dataset.spin) {
+    case "left": targetView.yaw -= quarter; break;
+    case "right": targetView.yaw += quarter; break;
+    case "up": targetView.pitch = Math.min(PITCH_LIMIT, targetView.pitch + quarter); break;
+    case "down": targetView.pitch = Math.max(-PITCH_LIMIT, targetView.pitch - quarter); break;
+    case "home": targetView.yaw = 0.6; targetView.pitch = 0.45; break;
+  }
 });
 speedEl.addEventListener("click", (ev) => {
   const b = (ev.target as HTMLElement).closest("button");
