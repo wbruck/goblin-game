@@ -1,9 +1,14 @@
 # Goblin Hoard
 
 A web game about overseeing an unruly goblin hoard. The hoard grows with
-"effort", which goblins produce over time by gathering and hauling. The
-overseer never gives orders: you place food, shinies, and war drums on the
-board, and each goblin decides for itself whether to care.
+"effort", which goblins produce over game time by gathering and hauling.
+The overseer never gives orders: you place food, shinies, and war drums on
+the board, and each goblin decides for itself whether to care.
+
+It is not an idle game. You play forward at up to 64x speed and bank up to
+12 hours of game time per segment. Every move is recorded with its tick,
+so a later server can replay the segment with other players' moves and
+events mixed in and tell you what really happened.
 
 Research and design decisions are in [docs/research-and-design.md](docs/research-and-design.md).
 
@@ -11,8 +16,8 @@ Research and design decisions are in [docs/research-and-design.md](docs/research
 
 ```
 packages/sim      Pure TypeScript simulation. No DOM, no clock. Deterministic.
-packages/client   Vite + Canvas 2D client. Fixed-timestep loop, localStorage
-                  save, offline catch-up with a return report.
+packages/client   Vite + Canvas 2D client. Fixed-timestep loop with speed
+                  control, localStorage save, 12-hour segment bank.
 ```
 
 ## Run
@@ -39,12 +44,13 @@ Saves live in the browser's localStorage, so progress is per browser.
 
 - One tick is 250 ms of game time. The client advances the sim from an
   accumulator driven by requestAnimationFrame and renders with interpolation.
-- All randomness goes through a seeded generator. Same seed and same
-  commands give the same world, which is what makes save, replay, offline
-  catch-up and a later server possible.
-- Offline progress replays the real simulation at speed, capped at 12 hours.
-  The client runs it in chunks so the page stays responsive, then shows a
-  return report.
+- All randomness goes through a seeded generator and all goblin state is
+  integer. Same seed and same commands give the same world bit for bit.
+- Every applied command is recorded with its tick in the world's history.
+  `World.replay(seed, history)` rebuilds the world; `World.checksum()`
+  hashes it so two machines can prove they agree.
+- A save is seed, history and a snapshot. Nothing happens while the tab is
+  closed; there is no offline progress.
 - Goblins pick actions with a utility score built from their needs, their
   temperament (greed, bravery, diligence), and the incentives on the board,
   plus seeded noise. Refusals are written to the log with a reason.

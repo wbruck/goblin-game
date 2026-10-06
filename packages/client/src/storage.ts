@@ -1,14 +1,20 @@
-import { World, type WorldData } from "@goblin/sim";
+import { SAVE_VERSION, World, type WorldData } from "@goblin/sim";
 
-const KEY = "goblin-hoard-save-v1";
+const KEY = "goblin-hoard-save-v2";
 
+/**
+ * A save is the world's seed and command history (the session, replayable
+ * anywhere) plus a snapshot (so a page load does not replay the segment).
+ * `segmentStartTick` marks where the current 12-hour bank began.
+ */
 export interface SaveFile {
   savedAt: number;
+  segmentStartTick: number;
   world: WorldData;
 }
 
-export function save(world: World): void {
-  const file: SaveFile = { savedAt: Date.now(), world: world.toData() };
+export function save(world: World, segmentStartTick: number): void {
+  const file: SaveFile = { savedAt: Date.now(), segmentStartTick, world: world.toData() };
   try {
     localStorage.setItem(KEY, JSON.stringify(file));
   } catch (err) {
@@ -21,7 +27,7 @@ export function load(): SaveFile | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const file = JSON.parse(raw) as SaveFile;
-    if (!file.world || file.world.version !== 1) return null;
+    if (!file.world || file.world.version !== SAVE_VERSION) return null;
     return file;
   } catch {
     return null;

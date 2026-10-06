@@ -7,7 +7,7 @@ Status: Draft v1, decisions confirmed with the project owner.
 
 | Question | Decision |
 | --- | --- |
-| Growth while away | Real time with offline progress |
+| Time model | Play forward at accelerated speed, bank up to 12 hours of game time, server reconciles later. No idle time. (Revised; see section 2.) |
 | Board | Square grid, 2D top-down |
 | Architecture now | Simulation runs in the browser, structured so it can move to a server later |
 | Language and stack | TypeScript. Framework chosen by this research (see section 5) |
@@ -16,38 +16,61 @@ Status: Draft v1, decisions confirmed with the project owner.
 | Players | One now, multiplayer later |
 | Mobile | Web first, mobile app later |
 
-## 2. What the research says about the "time metric"
+## 2. The time model: play forward, then reconcile
 
-### 2.1 What players like
+### 2.1 Decision (revised 2026-10-06)
 
-- **Return value.** The strongest motivator in idle games is coming back to find things changed. Pecorella's GDC analysis of Kongregate data puts it as "the longer you're away, the greater your incentive to return," and the moment of return is a "celebratory moment." The return screen is the single most important screen in the game.
-- **Progress continues when the tab is closed.** Offline progress is treated as the backbone of the genre. Games that cap it too aggressively or compute it wrong on launch see players uninstall.
-- **Meaningful but not dominant offline gains.** Players expect offline gains to matter, but active play must still be the faster route. Common implementations use a 50 percent efficiency for offline time, or exclude certain activities from offline simulation (Clicker Heroes excludes click skills, hero leveling, and purchases).
-- **Early pacing that proves the loop.** From a developer who shipped seven idle prototypes: first upgrade within 60 seconds, first automation by 3 minutes, a meaningful decision within 5 minutes, first prestige-style reset within 10 to 15 minutes. Phase transitions every 3 to 5 minutes of active play. Another post puts first reset at 45 to 90 minutes and calls a 10-hour first reset "a death sentence."
-- **Revealed layers.** A new system should open roughly as the previous one is mastered. Players quit when all numbers are visible at once ("spreadsheet syndrome").
-- **Emergent stories.** This is the colony-sim half of the design. Dwarf Fortress and RimWorld players describe the appeal as surrendering to the simulation and being surprised by it. A goblin who ignores the loot pile and wanders into the enemy camp is content, not a bug, if the game tells the player about it.
+This is not an idle game. The player plays actively, on their own screen, at an accelerated rate. Each session banks up to 12 hours of game time worth of moves. Later, an authoritative server (not built yet) replays those moves together with other players' moves and world events, and the result may differ from what the player saw. The player then sees what actually happened.
 
-### 2.2 What players dislike
+Until the server exists, the player simply plays in the browser with no idle time. Nothing happens while the tab is closed. What must hold from day one is that every session is recorded and replayable.
 
-- **Pure waiting.** Forcing a player to wait with nothing to do is described as the cardinal sin of the genre. The fix is not to remove time, it is to always have a reachable next goal visible.
-- **Dead zones.** Flat linear scaling produces stretches of glacial progress. Growth needs "bumps": milestone multipliers that cause bursts of purchases, then slow parts. Cost scaling around 1.15x per level is the common default.
-- **Offline caps that feel like punishment.** Caps are accepted when they are explained and when the cap aligns with a natural rhythm. MergeCiv caps at 12 hours so two check-ins a day capture everything. Another game caps at 8 hours and discards time beyond that. Egg, Inc. caps at 2 hours but compensates with steep prestige math. Caps that silently lose progress or that produce a wrong total on launch cause uninstalls.
-- **Opaque offline math.** Players want a breakdown on return: what was gathered, what was built, who died.
-- **Overnight disasters.** MergeCiv prevents food from dropping below zero while offline. RimWorld-style games do not, and that is a common complaint. For a hoard, the equivalent is "I came back and everyone starved." The safe rule: offline time can fail to make progress, but it cannot destroy the hoard.
+Consequences:
 
-### 2.3 Tick-based versus real-time
+- **Local play is a prediction.** The browser runs the real simulation and shows the player the most likely outcome of their moves. The server's replay is the truth.
+- **"Moves" are inputs, not outcomes.** The overseer places incentives. Each placement is a command stamped with the tick it applied on. The command log is the session.
+- **The 12-hour bank is game time, not wall time.** At 4 ticks per second, 12 hours is 172,800 ticks. Played at 16x that is 45 minutes of screen time, at 64x about 11 minutes.
+- **The return moment becomes the reconciliation moment.** The retention screen is no longer "look what grew while you were away" but "here is where reality diverged from your plan": which incentives other hoards subverted, which goblins defected, what events struck. The research on return screens still applies to its shape (clear breakdown, named goblins, nothing hidden) even though the trigger is different.
 
-Tick-based games (progress in discrete steps on a real-time clock) and real-time games with fixed timesteps are the same thing at different granularity. The research supports a hybrid: the simulation advances in fixed ticks, the renderer runs at display rate, and offline time is paid out as a batch of ticks. Budgeted action points (accrue while away, spend when present) are a known pattern that fits the overseer role well: incentives the overseer can place could be rationed by a slowly refilling budget.
+### 2.2 What still carries over from the idle-game research
 
-### 2.4 Recommendation: the time model for this game
+- **Early pacing that proves the loop.** First visible decision within a minute, a meaningful choice within 5 minutes. Accelerated play makes this easier to hit.
+- **Revealed layers** and **no dead zones** apply unchanged to how the hoard grows.
+- **Nothing silent.** Players uninstall when progress is lost or recomputed without explanation. In this model the equivalent failure is a server replay that differs from local play with no account of why. Every divergence must be attributable to a named cause (another player's move, an event, a goblin's temperament roll).
+- **The hoard cannot be destroyed without the player present.** Reinterpreted: the server may subvert moves, but the reconciliation should never wipe a hoard outright. Losses must be bounded per segment.
 
-1. **Fixed simulation tick of 250 ms** (4 ticks per second). Fast enough for movement to look continuous when interpolated, slow enough that an hour offline is 14,400 ticks, which is cheap to replay.
-2. **"Effort" as the displayed metric.** Every tick, each goblin that is working produces effort. Effort is what the hoard spends on growth. Effort per tick is the number the player watches go up. Effort is proportional to time, but it scales with hoard size, mood, and how many goblins are actually doing something useful, which is where the "unruly" fantasy lives.
-3. **Offline progress by fast-forward simulation, not by formula.** Replay the real simulation at high speed when the player returns. This keeps the board honest (goblins moved, loot was taken, a fight happened) and avoids a second economy model that drifts from the first. Melvor Idle markets "perfect accuracy" from exactly this approach. Keep a formula fallback only for the case where the replay budget is exceeded.
-4. **Offline cap of 12 hours of simulated time**, stated in the UI. Beyond 12 hours, time is discarded. Reconsider to 8 or 24 after playtesting.
-5. **Offline efficiency.** Simulate offline time with goblins in "cautious" mode: no raids are started, no fights with rival hoards are initiated, and gathering runs at full speed. Rival hoards do not attack during offline time in v1. This gives natural offline gains below active play without an arbitrary 50 percent multiplier, and it keeps the "cannot destroy the hoard" guarantee.
-6. **Return report.** On return, show elapsed time, effort earned, hoard growth, notable events (births, deaths, discoveries), and the three funniest things goblins did. This screen is the retention mechanic.
-7. **Background tabs.** requestAnimationFrame pauses in background tabs. Do not try to keep simulating with setInterval. Treat a backgrounded tab as offline: record the wall-clock time and catch up on focus using the same code path as a cold start.
+What does not carry over: offline progress rates, offline caps as a daily rhythm, and catch-up by fast forward on return. Those sections were removed from this document.
+
+### 2.3 Recording and replay
+
+Replayability comes from three things, none of which is how a goblin is stored:
+
+1. **A deterministic step function.** Fixed tick, no wall clock inside the sim, stable iteration order, all randomness from a seeded generator, integer state where arithmetic could otherwise drift.
+2. **A seed.**
+3. **An ordered, tick-stamped input log.** Every command, with the tick it was applied on.
+
+Given those three, the state of every goblin at every tick is reproducible from nothing else. Goblin storage is therefore an optimization for two other jobs: loading a saved game quickly (a snapshot so the client does not replay 172,800 ticks on every page load) and proving that two machines agree (a checksum).
+
+Design:
+
+- `World` keeps `history`, the list of applied commands with their ticks, and `seed`. `World.replay(seed, history, toTick)` rebuilds a world from scratch. A unit test asserts that a replayed world is byte-identical to the live one.
+- A save is seed, history, and a snapshot. On load the snapshot is used; the history is kept so the session can be verified or submitted.
+- `World.checksum()` hashes a canonical integer encoding of the state. The client can record a checksum every N ticks alongside the log. When the server exists, mismatching checksums pinpoint the first tick where the replay diverged from what the player saw.
+- Goblin numeric fields are integers: hunger, energy and mood in hundredths (0 to 10,000; mood from -10,000 to 10,000), temperament traits 0 to 255. This is the change that makes a server in any language able to match the browser bit for bit.
+
+### 2.4 Why not pack each goblin into a hex value
+
+Bit-packing (for example 8 bits of hunger, 8 of energy, 4 of action, and so on in one 64-bit number) was considered. It is not recommended as the primary representation:
+
+- It does not help replayability. Replay needs the input log and determinism, which are independent of the storage format.
+- It costs debuggability. Every save file, log line and bug report becomes unreadable without a decoder, and a field that grows past its bit width is a silent corruption.
+- The compactness is available without it. A fixed-order array of 32-bit integers per goblin (the "record" the checksum uses) is already compact, byte-exact, trivially hashable, and converts to a binary blob with `Int32Array` when network transfer or storage size matters.
+- Where bit flags do fit: once goblins carry many booleans (is wounded, is a chief, has a grudge), pack those into a single `flags` integer. Packing numeric ranges into bit fields is not worth it.
+
+### 2.5 Tick and speed
+
+- Fixed simulation tick of 250 ms of game time. The client advances the world from an accumulator and can run at 1x, 4x, 16x or 64x game speed. Speed only changes how many ticks run per frame; it never changes the simulation.
+- Background tabs pause. There is no catch-up, because there is no offline time in this model.
+- When the bank reaches 12 hours of game time the client stops advancing and shows the segment summary. In the full game this is where the session would be submitted. For now the player starts the next segment immediately.
 
 ## 3. What the research says about the board and the autonomous goblins
 
@@ -95,11 +118,11 @@ Auto-battler research says skill lives in preparation and watching is the payoff
 - Let the player influence fights only through the same indirect tools: a war drum near the enemy, loot bait placed to pull enemies into a chokepoint, a totem that buffs nearby goblins.
 - Rival hoards run the same utility AI with different temperaments. A cowardly rival hoard raids when the player's goblins are away. A greedy one takes bait.
 - Fights resolve on the grid, tile-adjacent, a few ticks per exchange. No separate battle screen.
-- Combat must be deterministic given the seed, so that offline replay and later server authority produce identical results.
+- Combat must be deterministic given the seed, so that the server's replay and the player's local play produce identical results unless another input intervened.
 
 ### 3.5 Determinism
 
-Everything above depends on the simulation being deterministic: fixed timestep, seeded random numbers, stable iteration order, no reliance on wall-clock time inside the sim. This is the same requirement that makes replays, offline catch-up, debugging, and later server authority possible. Use a small seeded generator (Mulberry32 or PCG32, both widely used in JavaScript) and never call `Math.random` inside the sim. Avoid floating-point accumulation where integer math works; store effort and resources as integers.
+Everything above depends on the simulation being deterministic: fixed timestep, seeded random numbers, stable iteration order, no reliance on wall-clock time inside the sim. This is the same requirement that makes replays, save verification, debugging, and later server authority possible. Use a small seeded generator (Mulberry32 or PCG32, both widely used in JavaScript) and never call `Math.random` inside the sim. Avoid floating-point accumulation where integer math works; store effort and resources as integers.
 
 ## 4. Architecture
 
@@ -109,13 +132,13 @@ packages/
               Tick function: (state, inputs, rng) -> state.
               Runs in the browser today, on a server later.
   client/     Vite app. Renders sim state to Canvas, collects overseer input,
-              saves to localStorage, handles offline catch-up and the
-              return report.
+              runs the sim at the chosen speed, saves seed + history +
+              snapshot to localStorage, shows the segment summary.
 ```
 
 - The client holds a `World` from `sim`, calls `world.step()` on a fixed-timestep accumulator driven by requestAnimationFrame, and renders with interpolation.
 - Inputs from the overseer (place incentive at tile) are queued as commands with the tick they apply on. This is the same shape a server would accept, so moving to server authority later is a transport change, not a rewrite.
-- Save format is the serialized `World` plus the wall-clock timestamp. On load, compute elapsed ticks, clamp to the cap, and run the catch-up loop in chunks so the UI stays responsive, then show the return report.
+- Save format is seed, command history and a snapshot of the `World`. On load the snapshot is restored directly; the history is kept so the segment can be verified by replay or submitted to a server later.
 - Multiplayer path: a Colyseus room (the most used TypeScript authoritative server) runs the same `sim` package, clients send commands, and the room broadcasts state deltas. Nothing in `sim` needs to change for that.
 - Mobile path: Capacitor wraps the same web build in a native shell. Canvas and WebGL run at WebView speed, which is enough for a 2D tile game, and this is the route Vampire Survivors used. React Native would require rewriting the renderer, so it is not recommended.
 
@@ -127,9 +150,9 @@ packages/
 | PixiJS v8 | WebGL and WebGPU renderer, very fast batching, good TypeScript, still "just a renderer" so it does not dictate architecture | Another dependency and a learning curve; overkill until sprite counts climb |
 | Phaser 4 | Full engine: scenes, sprites, tweens, audio, input. Released April 2026 with a new WebGL renderer | Wants to own the game loop and scene lifecycle, which fights the "sim is independent of renderer" rule; heavier bundle |
 
-**Recommendation.** Start with plain Canvas 2D behind a small `Renderer` interface. The sim is the hard part and the thing that has to be right for offline replay and multiplayer. If sprite counts or effects outgrow Canvas 2D, swap in PixiJS behind the same interface. Phaser is not recommended because the simulation must not live inside an engine's update loop.
+**Recommendation.** Start with plain Canvas 2D behind a small `Renderer` interface. The sim is the hard part and the thing that has to be right for replay and multiplayer. If sprite counts or effects outgrow Canvas 2D, swap in PixiJS behind the same interface. Phaser is not recommended because the simulation must not live inside an engine's update loop.
 
-For UI chrome (panels, the return report, the event log) use plain DOM with TypeScript. Add a UI framework only if the panels get complicated.
+For UI chrome (panels, the segment summary, the event log) use plain DOM with TypeScript. Add a UI framework only if the panels get complicated.
 
 Entity-component libraries (bitECS, Miniplex) were considered. The goblin count in v1 is small and the entity types are few, so plain arrays of typed records are simpler and keep serialization trivial. Revisit if the entity model grows.
 
@@ -140,21 +163,21 @@ Entity-component libraries (bitECS, Miniplex) were considered. The goblin count 
 3. Effort production, hoard growth (new goblins hatch when effort crosses thresholds).
 4. Overseer tools: place food pile, place loot pile, place war drum. Each costs effort and decays.
 5. One rival hoard running the same AI; tile-adjacent fights.
-6. Fixed-timestep loop, seeded random, save and load, offline catch-up with a 12-hour cap and a return report.
+6. Fixed-timestep loop with speed control, seeded random with integer state, command history, replay, checksums, save and load, the 12-hour segment bank and segment summary.
 7. Event log with reasons for refusals.
 
 ## 7. What the scaffold does today and what was measured
 
-The scaffold in `packages/sim` and `packages/client` implements sections 2.4, 3 and 4 at prototype depth: grid, A\*, utility AI with refusals, three incentives (food pile, shiny pile, war drum), effort and hatching, seeded determinism, save and load, offline replay with a 12-hour cap, and the return report. Rival hoards and fighting are not built yet.
+The scaffold in `packages/sim` and `packages/client` implements sections 2, 3 and 4 at prototype depth: grid, A\*, utility AI with refusals, three incentives (food pile, shiny pile, war drum), effort and hatching, seeded determinism with integer state, a tick-stamped command history, replay from seed plus history, checksums, save and load, speed control and the 12-hour segment bank. Rival hoards, fighting, events and the server reconciliation are not built yet.
 
 Measured on this container with the default map and starting hoard of 6:
 
-| Simulated time | Hoard size | Replay time in Node | Replay time in headless Chromium |
+| Game time replayed | Hoard size | Replay time in Node | Replay time in headless Chromium |
 | --- | --- | --- | --- |
 | 2 hours | about 43 | 0.8 s | not measured |
 | 12 hours (the cap) | about 60 | 6.9 s | 18 s |
 
-The browser figure is the worst case a returning player sees, with a progress bar. It is acceptable for a prototype. If it needs to drop, the options in order of preference are: fewer A\* calls per tick (cache paths, reconsider less often), a coarser offline tick, and only then a formula fallback.
+These numbers were measured when the game still had offline catch-up. They remain relevant as the cost of a full server-side replay of one 12-hour segment, and as the cost of the client verifying a save by replay. If it needs to drop, the options in order of preference are: fewer A\* calls per tick (cache paths, reconsider less often), then a coarser tick.
 
 Balance is untuned. Growth over 12 hours is roughly logarithmic because the hatch threshold grows 15 percent per goblin while effort grows linearly with hoard size. That is a reasonable shape for an idle game but the constants were chosen to make the loop visibly work, not to be fun yet. The first thing playtesting should set is the time to the first hatch (currently about 20 seconds) and the time to the tenth.
 
@@ -162,7 +185,7 @@ Balance is untuned. Growth over 12 hours is roughly logarithmic because the hatc
 
 - Prestige or reset loop: does the hoard "migrate" to a new cave with bonuses? Research says a first reset within the first hour is important, so decide before balancing.
 - How large can the map get before flow fields are required?
-- Whether rival hoards should act during offline time once the player has defenses.
+- What the server may change during reconciliation, and how losses per segment are bounded so a player never returns to a wiped hoard.
 - Art direction and whether a tile set is hand-drawn or generated.
 
 ## 9. Sources

@@ -11,11 +11,24 @@
       <header id="topbar">
         <h1>Goblin Hoard</h1>
         <div id="stats"></div>
+        <div id="speed" title="Game speed">
+          <button data-speed="0">Pause</button>
+          <button data-speed="1">1x</button>
+          <button data-speed="4">4x</button>
+          <button data-speed="16">16x</button>
+          <button data-speed="64">64x</button>
+        </div>
       </header>
       <main id="board-wrap">
         <canvas id="board"></canvas>
       </main>
       <aside id="side">
+        <section id="segment">
+          <h2>Segment</h2>
+          <div id="bank"></div>
+          <progress id="bank-bar" value="0" max="1"></progress>
+          <p class="hint">You play forward at speed. Every move is recorded with its tick. A segment holds 12 hours of game time; later a server will replay it with other hoards' moves mixed in.</p>
+        </section>
         <section id="tools">
           <h2>Overseer</h2>
           <p class="hint">Pick a thing to place, then click a tile. Goblins decide for themselves whether to care.</p>
@@ -26,10 +39,12 @@
           <ul id="log"></ul>
         </section>
         <section id="debug">
+          <button id="verify">Verify replay</button>
           <button id="reset">New hoard</button>
+          <div id="verify-result" class="hint"></div>
         </section>
       </aside>
-      <div id="return-report" class="hidden"></div>
+      <div id="overlay" class="hidden"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

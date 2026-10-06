@@ -10,18 +10,28 @@ export type ActionKind =
   | "loot"
   | "rally";
 
+/** Fixed-point scale for needs and mood: 100 units = 1 point on a 0..100 scale. */
+export const NEED_SCALE = 100;
+export const NEED_MAX = 100 * NEED_SCALE;
+export const TRAIT_MAX = 255;
+
+/**
+ * All numeric goblin state is integer so that a replay on any machine, in
+ * any language, produces identical bits. Needs are in hundredths, traits
+ * are 0..255. See docs section 2.3.
+ */
 export interface Goblin {
   id: number;
   name: string;
   x: number;
   y: number;
-  /** 0 (full) to 100 (starving). */
+  /** 0 (full) to NEED_MAX (starving). */
   hunger: number;
-  /** 0 (exhausted) to 100 (fresh). */
+  /** 0 (exhausted) to NEED_MAX (fresh). */
   energy: number;
-  /** -100 (furious) to 100 (delighted). Low mood makes goblins sulk. */
+  /** -NEED_MAX (furious) to NEED_MAX (delighted). Low mood makes goblins sulk. */
   mood: number;
-  /** Fixed temperament, 0 to 1. */
+  /** Fixed temperament, 0..TRAIT_MAX. */
   greed: number;
   bravery: number;
   diligence: number;
@@ -43,7 +53,7 @@ export interface Incentive {
   kind: IncentiveKind;
   x: number;
   y: number;
-  /** Pull strength. Decays each tick; removed at zero. */
+  /** Pull strength in tenths. Decays each tick; removed at zero. */
   strength: number;
   /** Remaining units for consumable incentives (food, shiny). */
   remaining: number;
@@ -70,8 +80,16 @@ export interface LogEvent {
 export type Command =
   | { type: "placeIncentive"; kind: IncentiveKind; x: number; y: number };
 
+/** A command together with the tick on which it was applied. */
+export interface RecordedCommand {
+  tick: number;
+  command: Command;
+}
+
 export interface WorldData {
-  version: 1;
+  version: 2;
+  seed: number;
+  startingGoblins: number;
   tick: number;
   rngState: number;
   grid: GridData;
@@ -81,9 +99,6 @@ export interface WorldData {
   hoard: Hoard;
   nextId: number;
   log: LogEvent[];
-}
-
-export interface StepOptions {
-  /** Offline replay: goblins stay cautious and nothing can destroy the hoard. */
-  offline?: boolean;
+  /** Every command ever applied, in order. Seed + history replays the world. */
+  history: RecordedCommand[];
 }
