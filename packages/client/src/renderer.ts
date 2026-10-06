@@ -1,23 +1,10 @@
 import { FACES, Terrain, type Goblin, type Tile, type Vec3, type World } from "@goblin/sim";
 
-const TERRAIN_COLORS: Record<number, [number, number, number]> = {
-  [Terrain.Floor]: [60, 58, 46],
-  [Terrain.Wall]: [92, 82, 70],
-  [Terrain.Cave]: [110, 66, 46],
-  [Terrain.Resource]: [66, 118, 52],
-};
-
-const ACTION_COLORS: Record<Goblin["action"], string> = {
-  idle: "#8a8a8a",
-  wander: "#b0a070",
-  gather: "#8fbf4a",
-  deliver: "#c8e07a",
-  eat: "#e0a63a",
-  rest: "#6a7fbf",
-  loot: "#f0d060",
-  rally: "#c25a3a",
-  forage: "#d98a3a",
-};
+// One colour for the whole board; only the warren (cave) stands out.
+const BOARD_COLOR: [number, number, number] = [74, 92, 60];
+const WARREN_COLOR: [number, number, number] = [120, 70, 48];
+const MUSHROOM_COLOR = "#f3e9c9";
+const GOBLIN_COLOR = "#e0c070";
 
 export interface View {
   /** Rotation about the vertical axis, radians. */
@@ -121,7 +108,7 @@ export class Renderer {
         for (let u = 0; u < n; u++) {
           const t = { f, u, v };
           const quad = this.tileQuad(world, t, view);
-          const [r, g, b] = TERRAIN_COLORS[world.grid.get(t)] ?? [255, 0, 255];
+          const [r, g, b] = world.grid.get(t) === Terrain.Cave ? WARREN_COLOR : BOARD_COLOR;
           ctx.fillStyle = `rgb(${r * shade | 0},${g * shade | 0},${b * shade | 0})`;
           fillQuad(ctx, quad);
           ctx.strokeStyle = "rgba(0,0,0,0.35)";
@@ -141,7 +128,7 @@ export class Renderer {
       const size = r * (0.7 + 0.3 * Math.min(1, inc.strength / 1000));
       ctx.beginPath();
       ctx.arc(cx, cy, size, 0, Math.PI * 2);
-      ctx.fillStyle = inc.kind === "food" ? "#e0a63a" : inc.kind === "shiny" ? "#f6e27a" : "#c25a3a";
+      ctx.fillStyle = inc.kind === "food" ? MUSHROOM_COLOR : inc.kind === "shiny" ? "#f6e27a" : "#c25a3a";
       ctx.fill();
       if (inc.kind === "drum") {
         ctx.strokeStyle = "rgba(194,90,58,0.5)";
@@ -165,30 +152,17 @@ export class Renderer {
       const [px, py] = this.project(pos);
       ctx.beginPath();
       ctx.arc(px, py, r * 0.8, 0, Math.PI * 2);
-      ctx.fillStyle = ACTION_COLORS[gob.action];
+      ctx.fillStyle = GOBLIN_COLOR;
       ctx.fill();
       ctx.strokeStyle = "#000";
       ctx.lineWidth = 1;
       ctx.stroke();
-      if (gob.carrying > 0) {
-        ctx.fillStyle = "#3d6b2e";
-        ctx.fillRect(px - 2, py - r * 1.3, 4, 4);
-      }
-      if (gob.carryingFood > 0) {
-        ctx.fillStyle = "#e0a63a";
-        ctx.fillRect(px + 3, py - r * 1.3, 4, 4);
-      }
       if (gob.id === selectedId) {
         ctx.beginPath();
         ctx.arc(px, py, r * 1.3 + 2, 0, Math.PI * 2);
         ctx.strokeStyle = "#fff";
         ctx.lineWidth = 2;
         ctx.stroke();
-      }
-      if (gob.mood < -4000) {
-        ctx.fillStyle = "#fff";
-        ctx.font = `${Math.max(9, r)}px sans-serif`;
-        ctx.fillText("!", px + r * 0.7, py - r * 0.5);
       }
     }
 

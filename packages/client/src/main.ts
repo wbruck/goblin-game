@@ -418,14 +418,34 @@ document.addEventListener("visibilitychange", () => {
 resetBtn.addEventListener("click", () => {
   if (!confirm("Abandon this hoard and start a new one?")) return;
   clear();
-  world = World.create((Date.now() ^ 0x5bd1e995) >>> 0);
+  startNewGame((Date.now() ^ 0x5bd1e995) >>> 0);
+});
+
+/** Reset every piece of client state and begin a fresh world. */
+function startNewGame(seed: number): void {
+  world = World.create(seed);
   segmentStartTick = 0;
-  renderer.resize(world);
-  renderedLogLength = -1;
   accumulator = 0;
   selectedId = null;
+  tool = null;
+  hover = null;
+  drag = null;
+  renderedLogLength = -1;
+  for (const node of rosterNodes.values()) node.el.remove();
+  rosterNodes.clear();
+  rosterKey = "";
+  overlayEl.classList.add("hidden");
   verifyResult.textContent = "";
-});
+  targetView.yaw = 0.6;
+  targetView.pitch = 0.45;
+  view.yaw = targetView.yaw;
+  view.pitch = targetView.pitch;
+  renderer.resize(world);
+  buildTools();
+  setSpeed(1);
+  updateRoster(performance.now(), true);
+  save(world, segmentStartTick);
+}
 verifyBtn.addEventListener("click", () => {
   // Prove the session is replayable: rebuild from seed + history and
   // compare checksums. This is exactly what a server would do.

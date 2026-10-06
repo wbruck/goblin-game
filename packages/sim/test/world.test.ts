@@ -17,9 +17,15 @@ function run(world: World, ticks: number): void {
 }
 
 describe("World", () => {
+  it("a new hoard starts with one goblin by default", () => {
+    const w = World.create(1);
+    expect(w.goblins.length).toBe(1);
+    expect(w.hoard.born).toBe(0);
+  });
+
   it("is deterministic: same seed and inputs give the same state", () => {
-    const a = World.create(123);
-    const b = World.create(123);
+    const a = World.create(123, 6);
+    const b = World.create(123, 6);
     a.enqueue({ type: "placeIncentive", kind: "food", tile: spot(a) });
     b.enqueue({ type: "placeIncentive", kind: "food", tile: spot(b) });
     run(a, 2000);
@@ -29,15 +35,15 @@ describe("World", () => {
   });
 
   it("different seeds diverge", () => {
-    const a = World.create(1);
-    const b = World.create(2);
+    const a = World.create(1, 6);
+    const b = World.create(2, 6);
     run(a, 200);
     run(b, 200);
     expect(a.checksum()).not.toBe(b.checksum());
   });
 
   it("keeps every numeric goblin field an integer", () => {
-    const w = World.create(5);
+    const w = World.create(5, 6);
     run(w, 3000);
     for (const g of w.goblins) {
       for (const k of ["hunger", "energy", "mood", "greed", "bravery", "diligence", "carrying", "commitment"] as const) {
@@ -47,7 +53,7 @@ describe("World", () => {
   });
 
   it("produces effort and hatches goblins over time", () => {
-    const w = World.create(5);
+    const w = World.create(5, 6);
     const start = w.goblins.length;
     run(w, 4 * 60 * 20); // 20 minutes of game time
     expect(w.hoard.lifetimeEffort).toBeGreaterThan(0);
@@ -55,7 +61,7 @@ describe("World", () => {
   });
 
   it("round-trips through save data", () => {
-    const w = World.create(77);
+    const w = World.create(77, 6);
     run(w, 500);
     const saved = JSON.parse(JSON.stringify(w.toData()));
     const restored = World.fromData(saved);
@@ -66,13 +72,13 @@ describe("World", () => {
   });
 
   it("keeps goblins on walkable tiles", () => {
-    const w = World.create(9);
+    const w = World.create(9, 6);
     run(w, 1500);
     for (const g of w.goblins) expect(w.grid.isWalkable(g.tile)).toBe(true);
   });
 
   it("charges effort for incentives and refuses when broke", () => {
-    const w = World.create(3);
+    const w = World.create(3, 6);
     w.hoard.effort = 10;
     w.enqueue({ type: "placeIncentive", kind: "drum", tile: spot(w) });
     w.step();
@@ -88,7 +94,7 @@ describe("World", () => {
 
 describe("cube board", () => {
   it("goblins cross face edges during normal play", () => {
-    const w = World.create(5);
+    const w = World.create(5, 6);
     const facesVisited = new Set<number>();
     for (let i = 0; i < 2000; i++) {
       w.step();
@@ -107,7 +113,7 @@ describe("cube board", () => {
 
 describe("history and replay", () => {
   it("records every applied command with its tick", () => {
-    const w = World.create(8);
+    const w = World.create(8, 6);
     run(w, 100);
     w.hoard.effort = 500;
     w.enqueue({ type: "placeIncentive", kind: "food", tile: spot(w, 0) });
@@ -120,7 +126,7 @@ describe("history and replay", () => {
   });
 
   it("replays seed plus history to the identical state", () => {
-    const live = World.create(31337);
+    const live = World.create(31337, 6);
     const place = (kind: "food" | "shiny" | "drum", k: number) =>
       live.enqueue({ type: "placeIncentive", kind, tile: spot(live, k) });
     run(live, 400);
@@ -131,14 +137,14 @@ describe("history and replay", () => {
     place("shiny", 5);
     run(live, 1500);
 
-    const replayed = World.replay(live.seed, live.history, live.tick);
+    const replayed = World.replay(live.seed, live.history, live.tick, 6);
     expect(replayed.tick).toBe(live.tick);
     expect(replayed.checksum()).toBe(live.checksum());
     expect(JSON.stringify(replayed.toData())).toBe(JSON.stringify(live.toData()));
   });
 
   it("checksum changes when a single command is altered", () => {
-    const live = World.create(42);
+    const live = World.create(42, 6);
     // Play until the hoard can afford a drum, so the command really takes effect.
     for (let i = 0; i < 20000 && live.hoard.effort < 40; i++) live.step();
     expect(live.hoard.effort).toBeGreaterThanOrEqual(40);
@@ -147,14 +153,14 @@ describe("history and replay", () => {
     expect(live.history.length).toBe(1);
 
     const tampered = live.history.map((h) => ({ ...h, command: { ...h.command, tile: spot(live, 4) } }));
-    const a = World.replay(live.seed, live.history, live.tick);
-    const b = World.replay(live.seed, tampered, live.tick);
+    const a = World.replay(live.seed, live.history, live.tick, 6);
+    const b = World.replay(live.seed, tampered, live.tick, 6);
     expect(a.checksum()).toBe(live.checksum());
     expect(b.checksum()).not.toBe(live.checksum());
   });
 
   it("replay cost: 12 hours of game time stays under a sane budget", () => {
-    const w = World.create(5);
+    const w = World.create(5, 6);
     const t0 = Date.now();
     run(w, 12 * 60 * 60 * 4);
     const ms = Date.now() - t0;

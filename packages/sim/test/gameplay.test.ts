@@ -19,7 +19,7 @@ function run(world: World, ticks: number): void {
 
 describe("food spawns", () => {
   it("sprouts food piles over time, at most three, never on wall or cave", () => {
-    const w = World.create(5);
+    const w = World.create(5, 6);
     let sawFood = false;
     for (let i = 0; i < 6000; i++) {
       w.step();
@@ -36,7 +36,7 @@ describe("food spawns", () => {
   });
 
   it("refuses overseer-placed food and spends nothing", () => {
-    const w = World.create(3);
+    const w = World.create(3, 6);
     w.hoard.effort = 100;
     const before = w.incentives.length;
     w.enqueue({ type: "placeIncentive", kind: "food", tile: spot(w) });
@@ -51,7 +51,7 @@ describe("food spawns", () => {
 
 describe("warren", () => {
   it("fills from foraging and never exceeds capacity", () => {
-    const w = World.create(5);
+    const w = World.create(5, 6);
     let exceededStart = false;
     for (let i = 0; i < 8000; i++) {
       w.step();
@@ -63,7 +63,7 @@ describe("warren", () => {
   });
 
   it("hatches only when the warren is full, and the hatch empties it", () => {
-    const w = World.create(5);
+    const w = World.create(5, 6);
     w.hoard.effort = 1_000_000;
     // Keep goblins from changing the warren this tick.
     for (const g of w.goblins) {
@@ -85,7 +85,7 @@ describe("warren", () => {
 
 describe("hatch rate", () => {
   it("hatches only when the warren is full, regardless of effort", () => {
-    const w = World.create(5);
+    const w = World.create(5, 6);
     const start = w.goblins.length;
     w.hoard.effort = 0;
     // Goblins may eat from the warren earlier in the same tick, so overfill it.
@@ -105,7 +105,7 @@ describe("hatch rate", () => {
   });
 
   it("grows slowly: at most a few hatches in 20 minutes of game time", () => {
-    const w = World.create(5);
+    const w = World.create(5, 6);
     const start = w.goblins.length;
     expect(start).toBe(6);
     run(w, 4 * 60 * 20);
@@ -114,7 +114,7 @@ describe("hatch rate", () => {
 });
 describe("motives", () => {
   it("every goblin has a known motive, and motive is in the checksum", () => {
-    const w = World.create(11);
+    const w = World.create(11, 6);
     run(w, 500);
     for (const g of w.goblins) expect(MOTIVES).toContain(g.motive);
     const before = w.checksum();
@@ -127,7 +127,7 @@ describe("motives", () => {
 
 describe("replay with spawns", () => {
   it("replays food spawns and overseer commands to the identical checksum", () => {
-    const live = World.create(2024);
+    const live = World.create(2024, 6);
     run(live, 1500);
     live.enqueue({ type: "placeIncentive", kind: "shiny", tile: spot(live, 2) });
     run(live, 1500);
@@ -135,7 +135,7 @@ describe("replay with spawns", () => {
     run(live, 2000);
     expect(live.tick).toBe(5000);
     expect(live.history.length).toBe(2);
-    const replayed = World.replay(live.seed, live.history, live.tick);
+    const replayed = World.replay(live.seed, live.history, live.tick, 6);
     expect(replayed.checksum()).toBe(live.checksum());
     expect(JSON.stringify(replayed.toData())).toBe(JSON.stringify(live.toData()));
   });

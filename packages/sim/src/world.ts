@@ -24,6 +24,8 @@ export const TICK_MS = 250;
 export const TICKS_PER_SECOND = 1000 / TICK_MS;
 export const SAVE_VERSION = 5;
 export const DEFAULT_CUBE_SIZE = 4;
+/** A new hoard begins with a single goblin. */
+export const DEFAULT_STARTING_GOBLINS = 1;
 
 const LOG_LIMIT = 200;
 const CARRY_CAPACITY = 6;
@@ -106,7 +108,7 @@ export class World {
     this.resourceTiles = this.grid.findAll(Terrain.Resource);
   }
 
-  static create(seed: number, startingGoblins = 6, size = DEFAULT_CUBE_SIZE): World {
+  static create(seed: number, startingGoblins = DEFAULT_STARTING_GOBLINS, size = DEFAULT_CUBE_SIZE): World {
     const rng = new Rng(seed);
     const { grid, cave } = generateMap(rng, size);
     const w = new World({
@@ -143,7 +145,7 @@ export class World {
    * (default: the tick after the last command). This is the server's job
    * later; today it verifies saves and proves determinism in tests.
    */
-  static replay(seed: number, history: RecordedCommand[], toTick?: number, startingGoblins = 6, size = DEFAULT_CUBE_SIZE): World {
+  static replay(seed: number, history: RecordedCommand[], toTick?: number, startingGoblins = DEFAULT_STARTING_GOBLINS, size = DEFAULT_CUBE_SIZE): World {
     const w = World.create(seed, startingGoblins, size);
     const last = history[history.length - 1];
     const end = toTick ?? (last ? last.tick + 1 : 0);
