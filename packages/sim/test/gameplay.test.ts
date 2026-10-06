@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Terrain, type Tile } from "../src/cube";
 import { MOTIVES } from "../src/types";
-import { FIRST_HATCH_AT, MAX_FOOD_PILES, WARREN_START, World } from "../src/world";
+import { MAX_FOOD_PILES, WARREN_START, World } from "../src/world";
 
 /** A walkable non-cave tile, for placing incentives. */
 function spot(w: World, k = 0): Tile {
@@ -37,7 +37,6 @@ describe("food spawns", () => {
 
   it("refuses overseer-placed food and spends nothing", () => {
     const w = World.create(3);
-    w.hoard.nextHatchAt = 1_000_000;
     w.hoard.effort = 100;
     const before = w.incentives.length;
     w.enqueue({ type: "placeIncentive", kind: "food", tile: spot(w) });
@@ -85,27 +84,34 @@ describe("warren", () => {
 });
 
 describe("hatch rate", () => {
-  it("starts at 600 effort and grows slowly over 20 minutes", () => {
+  it("hatches only when the warren is full, regardless of effort", () => {
     const w = World.create(5);
-    expect(w.hoard.nextHatchAt).toBe(FIRST_HATCH_AT);
-    expect(FIRST_HATCH_AT).toBe(600);
+    const start = w.goblins.length;
+    w.hoard.effort = 0;
+    // Goblins may eat from the warren earlier in the same tick, so overfill it.
+    w.hoard.warren = w.hoard.warrenCapacity + w.goblins.length;
+    w.step();
+    expect(w.goblins.length).toBe(start + 1);
+    expect(w.hoard.warren).toBe(0);
+    // Effort piling up never hatches anything on its own.
+    w.hoard.effort = 1_000_000;
+    w.hoard.warren = 0;
+    const before = w.goblins.length;
+    for (let i = 0; i < 10; i++) {
+      w.step();
+      w.hoard.warren = 0;
+    }
+    expect(w.goblins.length).toBe(before);
+  });
+
+  it("grows slowly: at most a few hatches in 20 minutes of game time", () => {
+    const w = World.create(5);
     const start = w.goblins.length;
     expect(start).toBe(6);
     run(w, 4 * 60 * 20);
-    const growth = w.goblins.length - start;
-    // How many hatches the same delivered effort would have bought under the
-    // old 60-effort first hatch (each later hatch 15% dearer).
-    let at60 = 0;
-    for (let cost = 60, spent = 0; spent + cost <= w.hoard.lifetimeEffort; at60++) {
-      spent += cost;
-      cost = Math.ceil((cost * 115) / 100);
-    }
-    expect(growth).toBeLessThan(at60 / 3);
-    // Seed 5 gives +3 here; seeds 1, 2, 3, 5, 7, 11, 42, 77 range from 0 to 3.
-    expect(growth).toBeLessThanOrEqual(5);
+    expect(w.goblins.length - start).toBeLessThanOrEqual(4);
   });
 });
-
 describe("motives", () => {
   it("every goblin has a known motive, and motive is in the checksum", () => {
     const w = World.create(11);

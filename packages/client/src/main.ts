@@ -161,7 +161,7 @@ function updateStats(): void {
   const sulking = world.goblins.filter((g) => g.mood < SULK_MOOD).length;
   statsEl.innerHTML =
     `<span>Hoard <b>${world.goblins.length}</b></span>` +
-    `<span>Effort <b>${world.hoard.effort}</b> / ${world.hoard.nextHatchAt}</span>` +
+    `<span>Effort <b>${world.hoard.effort}</b></span>` +
     `<span>Working <b>${working}</b></span>` +
     `<span>Sulking <b>${sulking}</b></span>` +
     `<span>Warren <b>${world.hoard.warren}</b> / ${world.hoard.warrenCapacity}</span>` +
@@ -186,10 +186,10 @@ function updateLog(): void {
 }
 
 function updateWarren(): void {
-  const { warren, warrenCapacity, nextHatchAt } = world.hoard;
+  const { warren, warrenCapacity } = world.hoard;
   warrenBar.max = Math.max(1, warrenCapacity);
   warrenBar.value = warren;
-  const text = `Warren ${warren} / ${warrenCapacity} food. Next hatch needs ${nextHatchAt} effort and a full warren.`;
+  const text = `Warren ${warren} / ${warrenCapacity} food. A goblin hatches when it is full.`;
   if (warrenText.textContent !== text) warrenText.textContent = text;
 }
 

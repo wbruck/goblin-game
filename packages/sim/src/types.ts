@@ -87,8 +87,6 @@ export interface Hoard {
   effort: number;
   /** Total effort ever delivered, never spent. Used for reports. */
   lifetimeEffort: number;
-  /** Effort needed before the next goblin hatches. */
-  nextHatchAt: number;
   /** Food units stored in the warren. Integer, 0..warrenCapacity. */
   warren: number;
   /** Most food the warren can hold. Grows with each hatch. */
@@ -113,7 +111,7 @@ export interface RecordedCommand {
 }
 
 export interface WorldData {
-  version: 4;
+  version: 5;
   seed: number;
   startingGoblins: number;
   /** Tiles per cube side. */

@@ -22,15 +22,12 @@ import {
 
 export const TICK_MS = 250;
 export const TICKS_PER_SECOND = 1000 / TICK_MS;
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const DEFAULT_CUBE_SIZE = 4;
 
 const LOG_LIMIT = 200;
 const CARRY_CAPACITY = 6;
-const HATCH_GROWTH_PERCENT = 115;
 
-/** Effort needed for the first hatch; each later hatch costs 15% more. */
-export const FIRST_HATCH_AT = 600;
 /** Food in the warren at the start of a new world. */
 export const WARREN_START = 4;
 /** A hatch needs a full warren and empties it. Capacity grows with each hatch. */
@@ -126,7 +123,6 @@ export class World {
       hoard: {
         effort: 0,
         lifetimeEffort: 0,
-        nextHatchAt: FIRST_HATCH_AT,
         warren: WARREN_START,
         warrenCapacity: WARREN_START_CAPACITY,
         shinies: 0,
@@ -194,7 +190,7 @@ export class World {
    */
   checksum(): number {
     const h = new Hasher().int(this.tick).int(this.rng.getState()).int(this.nextId);
-    h.int(this.hoard.effort).int(this.hoard.lifetimeEffort).int(this.hoard.nextHatchAt)
+    h.int(this.hoard.effort).int(this.hoard.lifetimeEffort)
       .int(this.hoard.warren).int(this.hoard.warrenCapacity).int(this.hoard.shinies).int(this.hoard.born);
     h.int(this.goblins.length);
     for (const g of this.goblins) h.goblin(g);
@@ -429,12 +425,11 @@ export class World {
   }
 
   private tryHatch(): void {
-    // The warren must be full to hatch, and the hatch uses all of it.
-    while (this.hoard.effort >= this.hoard.nextHatchAt && this.hoard.warren >= this.hoard.warrenCapacity) {
-      this.hoard.effort -= this.hoard.nextHatchAt;
+    // A goblin hatches when the warren is full, and the hatch uses all of
+    // it. Effort plays no part in hatching; it is banked for later use.
+    while (this.hoard.warren >= this.hoard.warrenCapacity) {
       this.hoard.warren = 0;
       this.hoard.warrenCapacity += WARREN_CAPACITY_PER_HATCH;
-      this.hoard.nextHatchAt = Math.ceil((this.hoard.nextHatchAt * HATCH_GROWTH_PERCENT) / 100);
       const g = this.spawnGoblin();
       this.addLog(`${g.name} hatched. The hoard numbers ${this.goblins.length}.`, "birth");
     }

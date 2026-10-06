@@ -73,7 +73,6 @@ describe("World", () => {
 
   it("charges effort for incentives and refuses when broke", () => {
     const w = World.create(3);
-    w.hoard.nextHatchAt = 1_000_000;
     w.hoard.effort = 10;
     w.enqueue({ type: "placeIncentive", kind: "drum", tile: spot(w) });
     w.step();
