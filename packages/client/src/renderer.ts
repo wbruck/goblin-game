@@ -78,6 +78,30 @@ export class Renderer {
     return world.grid.corners(t).map((c) => this.project(this.rotate(c, view)));
   }
 
+  /** A wall: a darker inset block with a heavy outline, so it reads as raised. */
+  private markWall(quad: Vec2[]): void {
+    const { ctx } = this;
+    const inner = insetQuad(quad, 0.78);
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    fillQuad(ctx, inner);
+    ctx.strokeStyle = "rgba(0,0,0,0.7)";
+    ctx.lineWidth = 2;
+    strokeQuad(ctx, inner);
+  }
+
+  /** A resource tile: three small pebbles in the tile's own colour family. */
+  private markResource(quad: Vec2[]): void {
+    const { ctx } = this;
+    const c = quadCenter(quad);
+    const d = this.scale * 0.16;
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    for (const [ox, oy] of [[-d, d * 0.5], [d, d * 0.5], [0, -d * 0.6]] as const) {
+      ctx.beginPath();
+      ctx.arc(c[0] + ox, c[1] + oy, Math.max(1.5, this.scale * 0.07), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   /** Tile under a canvas-relative point, or null. Front-most face wins. */
   pick(clientX: number, clientY: number, world: World, view: View): Tile | null {
     const rect = this.canvas.getBoundingClientRect();
@@ -114,6 +138,9 @@ export class Renderer {
           ctx.strokeStyle = "rgba(0,0,0,0.35)";
           ctx.lineWidth = 1;
           strokeQuad(ctx, quad);
+          const terrain = world.grid.get(t);
+          if (terrain === Terrain.Wall) this.markWall(quad);
+          else if (terrain === Terrain.Resource) this.markResource(quad);
         }
       }
     }
@@ -208,4 +235,20 @@ function pointInQuad(p: Vec2, q: Vec2[]): boolean {
 function normalize(v: Vec3): Vec3 {
   const l = Math.hypot(v[0], v[1], v[2]);
   return [v[0] / l, v[1] / l, v[2] / l];
+}
+
+function quadCenter(q: Vec2[]): Vec2 {
+  let x = 0;
+  let y = 0;
+  for (const p of q) {
+    x += p[0];
+    y += p[1];
+  }
+  return [x / q.length, y / q.length];
+}
+
+/** Shrink a quad toward its centre by the given factor. */
+function insetQuad(q: Vec2[], factor: number): Vec2[] {
+  const c = quadCenter(q);
+  return q.map((p) => [c[0] + (p[0] - c[0]) * factor, c[1] + (p[1] - c[1]) * factor] as Vec2);
 }
