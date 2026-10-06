@@ -25,6 +25,16 @@ npm run typecheck  # all packages
 npm run build      # production build of the client
 ```
 
+## Play it online
+
+Every push to `main` (and, until `main` exists, to the current working
+branch) runs `.github/workflows/deploy-pages.yml`, which tests, builds and
+publishes the client to GitHub Pages. One-time setup in the repository:
+Settings, Pages, set Source to "GitHub Actions". The site is then at
+`https://<owner>.github.io/goblin-game/`.
+
+Saves live in the browser's localStorage, so progress is per browser.
+
 ## How the simulation works
 
 - One tick is 250 ms of game time. The client advances the sim from an
