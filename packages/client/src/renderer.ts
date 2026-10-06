@@ -16,6 +16,7 @@ const ACTION_COLORS: Record<Goblin["action"], string> = {
   rest: "#6a7fbf",
   loot: "#f0d060",
   rally: "#c25a3a",
+  forage: "#d98a3a",
 };
 
 export interface View {
@@ -107,7 +108,7 @@ export class Renderer {
     return null;
   }
 
-  draw(world: World, alpha: number, hover: Tile | null, view: View): void {
+  draw(world: World, alpha: number, hover: Tile | null, view: View, selectedId: number | null = null): void {
     const { ctx } = this;
     ctx.fillStyle = "#0d0c09";
     ctx.fillRect(0, 0, this.width, this.height);
@@ -172,6 +173,17 @@ export class Renderer {
       if (gob.carrying > 0) {
         ctx.fillStyle = "#3d6b2e";
         ctx.fillRect(px - 2, py - r * 1.3, 4, 4);
+      }
+      if (gob.carryingFood > 0) {
+        ctx.fillStyle = "#e0a63a";
+        ctx.fillRect(px + 3, py - r * 1.3, 4, 4);
+      }
+      if (gob.id === selectedId) {
+        ctx.beginPath();
+        ctx.arc(px, py, r * 1.3 + 2, 0, Math.PI * 2);
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2;
+        ctx.stroke();
       }
       if (gob.mood < -4000) {
         ctx.fillStyle = "#fff";

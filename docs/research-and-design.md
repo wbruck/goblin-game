@@ -129,6 +129,20 @@ Auto-battler research says skill lives in preparation and watching is the payoff
 
 Everything above depends on the simulation being deterministic: fixed timestep, seeded random numbers, stable iteration order, no reliance on wall-clock time inside the sim. This is the same requirement that makes replays, save verification, debugging, and later server authority possible. Use a small seeded generator (Mulberry32 or PCG32, both widely used in JavaScript) and never call `Math.random` inside the sim. Avoid floating-point accumulation where integer math works; store effort and resources as integers.
 
+### 3.6 Warren, foraging, food spawns and motives
+
+Hatching now has two inputs. Effort still comes from gathering at resource tiles and hauling to the cave. Food now comes from a second stat, the warren: a store of food units in the cave that must fill up before a goblin can hatch.
+
+- **Warren.** It starts at 4 units with a capacity of 12, and each hatch adds 2 to the capacity. A hatch needs both effort at or above the threshold and a full warren. It spends the effort threshold and empties the warren. A goblin eating at the cave takes 1 unit from the warren. The client shows the warren as a progress bar, so "fill the bar" is the hatch condition the player sees.
+- **Hatch threshold.** The first hatch costs 600 effort, ten times the old 60, and each later hatch costs 15 percent more. Together with the food requirement, this cuts the hatch rate to roughly a tenth of what it was.
+- **Food spawns.** The overseer can no longer place food. If you try, the log says "Food cannot be placed; it grows where it likes." and no effort is spent. Instead, each tick there is a 1 in 400 chance that a mushroom patch of 6 units sprouts on a random walkable, non-cave tile, as long as fewer than 3 food piles are on the board. Spawning happens after commands are applied and incentives decay, and before goblins act. It draws from the world's seeded generator, so it replays exactly. About 54 units sprout per hour of game time.
+- **Foraging.** A goblin carrying nothing may choose to forage. Diligence and an emptier warren raise the score, and distance lowers it. A forager takes up to 3 units from a pile, carries them to the cave, and delivers them along with any effort it holds. If the warren is full, the goblin eats the overflow itself, and the log says so. Hungry goblins can still eat straight from a pile, which competes with foraging.
+- **Motives.** Each goblin records why it made its latest choice: hungry, tired, hauling, foraging, greedy, brave, diligent, sulking, bored, or none. The motive is display state and is never a decision input. It is still integer-coded into the goblin's checksum record so that saves, replays and checksums cover every stored field. If a goblin cannot find a path, its motive becomes sulking (when its mood is low) or bored.
+
+Why. Food that grows where it likes is the first world event that the player does not cause. It is the obvious hook for the server to subvert later: during reconciliation, a rival can raid a patch, or a blight can stop one from sprouting, without changing any rules on the client. Motives are the feedback that section 3.3 says indirect control needs. The client now shows a roster with a node for each goblin, giving its motive and what it is doing, so a goblin ignoring a drum reads as "hungry, eating" and not as a bug.
+
+Balance after a one-hour test run on seeds 1, 2, 3, 5, 7, 11, 42 and 77, with the full-warren rule: goblins went from 6 to between 7 and 11 (1 to 5 hatches, 0 to 3 in the first 20 minutes). The warren fills to capacity before each hatch and drops to 0 after it. Food is the bottleneck. Effort piles up past 10,000, and the warren fills slowly, because goblins eat from it and hungry or greedy goblins often eat at the pile. As a result, "foraging" rarely shows up as a motive, and sulking appears at times. The next tuning pass should raise the spawn rate or pile size, or make goblins prefer eating from the warren, until foragers are a common sight.
+
 ## 4. Architecture
 
 ```
@@ -165,15 +179,15 @@ Entity-component libraries (bitECS, Miniplex) were considered. The goblin count 
 
 1. Cube board with terrain, a hoard cave on the front face, resource tiles on every face, one rival camp.
 2. 5 to 20 goblins with needs, temperament, utility-based action choice, A\* movement.
-3. Effort production, hoard growth (new goblins hatch when effort crosses thresholds).
-4. Overseer tools: place food pile, place loot pile, place war drum. Each costs effort and decays.
+3. Effort production and a warren of food. A new goblin hatches when effort crosses a threshold (first at 600) and the warren is full.
+4. Food sprouts by itself on random tiles, and goblins forage it back to the warren. Overseer tools: place a loot pile or a war drum. Each costs effort and decays. The overseer cannot place food.
 5. One rival hoard running the same AI; tile-adjacent fights.
 6. Fixed-timestep loop with speed control, seeded random with integer state, command history, replay, checksums, save and load, the 12-hour segment bank and segment summary.
-7. Event log with reasons for refusals.
+7. Event log with reasons for refusals, and a roster with a node for each goblin showing its motive and current action.
 
 ## 7. What the scaffold does today and what was measured
 
-The scaffold in `packages/sim` and `packages/client` implements sections 2, 3 and 4 at prototype depth: cube board with edge crossing, A\*, utility AI with refusals, three incentives (food pile, shiny pile, war drum), effort and hatching, seeded determinism with integer state, a tick-stamped command history, replay from seed plus history, checksums, save and load, speed control and the 12-hour segment bank. Rival hoards, fighting, events and the server reconciliation are not built yet.
+The scaffold in `packages/sim` and `packages/client` implements sections 2, 3 and 4 at prototype depth: cube board with edge crossing, A\*, utility AI with refusals and a recorded motive for each choice, a roster with a node for each goblin showing its motive and action, two overseer incentives (shiny pile, war drum), food piles that sprout at random, foraging into a warren that has to fill before a hatch, effort and hatching with the first hatch at 600 effort, seeded determinism with integer state, a tick-stamped command history, replay from seed plus history, checksums, save and load, speed control and the 12-hour segment bank. Rival hoards, fighting, events and the server reconciliation are not built yet.
 
 Measured on this container with the earlier 48 by 32 flat map and starting hoard of 6 (the 4-cube is 96 tiles, so replays are now far cheaper):
 
@@ -184,7 +198,7 @@ Measured on this container with the earlier 48 by 32 flat map and starting hoard
 
 These numbers were measured when the game still had offline catch-up. They remain relevant as the cost of a full server-side replay of one 12-hour segment, and as the cost of the client verifying a save by replay. If it needs to drop, the options in order of preference are: fewer A\* calls per tick (cache paths, reconsider less often), then a coarser tick.
 
-Balance is untuned. Growth over 12 hours is roughly logarithmic because the hatch threshold grows 15 percent per goblin while effort grows linearly with hoard size. That is a reasonable shape for an idle game but the constants were chosen to make the loop visibly work, not to be fun yet. The first thing playtesting should set is the time to the first hatch (currently about 20 seconds) and the time to the tenth.
+Balance is untuned. Growth over 12 hours is roughly logarithmic because the hatch threshold grows 15 percent per goblin while effort grows linearly with hoard size. That is a reasonable shape for an idle game but the constants were chosen to make the loop visibly work, not to be fun yet. The first hatch now needs 600 effort and a full warren (12 food at first), which makes the hatch rate roughly a tenth of the earlier one. Over 20 minutes of game time, eight sampled seeds (1, 2, 3, 5, 7, 11, 42, 77) gained between 0 and 3 goblins. Food is now the limit, not effort; see section 3.6.
 
 ## 8. Open questions for later
 

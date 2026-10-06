@@ -1,12 +1,14 @@
 import { type CubeGrid, type Tile } from "./cube";
 import type { Rng } from "./rng";
-import { NEED_MAX, TRAIT_MAX, type ActionKind, type Goblin, type Incentive } from "./types";
+import { NEED_MAX, TRAIT_MAX, type ActionKind, type Goblin, type Incentive, type Motive } from "./types";
 
 export interface Choice {
   action: ActionKind;
   target: Tile | null;
   incentiveId: number | null;
   score: number;
+  /** What drove this choice, for display. */
+  motive: Motive;
   /** Set when the goblin passed over an incentive it could have followed. */
   refused?: string;
 }
@@ -17,7 +19,9 @@ export interface AiContext {
   cave: Tile;
   resources: Tile[];
   incentives: Incentive[];
-  hoardFood: number;
+  /** Food units stored in the warren. */
+  warren: number;
+  warrenCapacity: number;
   rng: Rng;
 }
 
@@ -51,25 +55,27 @@ export function chooseAction(g: Goblin, ctx: AiContext): Choice {
   // Needs first. Like Oxygen Not Included, needs override everything else
   // when they get urgent, but goblins also drift toward them earlier.
   if (hunger > 0.35) {
-    const atCave = hunger + (ctx.hoardFood > 0 ? 0.2 : -0.6) + noise();
-    candidates.push({ action: "eat", target: ctx.cave, incentiveId: null, score: atCave });
+    const atCave = hunger + (ctx.warren > 0 ? 0.2 : -0.6) + noise();
+    candidates.push({ action: "eat", target: ctx.cave, incentiveId: null, score: atCave, motive: "hungry" });
     for (const inc of ctx.incentives) {
       if (inc.kind !== "food" || inc.remaining <= 0) continue;
-      const pull = hunger * 1.1 + 0.3 - dist(inc.tile) * 0.8 + noise();
-      candidates.push({ action: "eat", target: inc.tile, incentiveId: inc.id, score: pull });
+      // Greedy goblins would rather eat the pile than carry it home.
+      const pull = hunger * 1.1 + 0.3 + greed * 0.3 - dist(inc.tile) * 0.8 + noise();
+      candidates.push({ action: "eat", target: inc.tile, incentiveId: inc.id, score: pull, motive: "hungry" });
     }
   }
   if (energy < 0.4) {
-    candidates.push({ action: "rest", target: ctx.cave, incentiveId: null, score: 1 - energy + noise() });
+    candidates.push({ action: "rest", target: ctx.cave, incentiveId: null, score: 1 - energy + noise(), motive: "tired" });
   }
 
   // Work. Diligent goblins like gathering; sulking goblins do not.
-  if (g.carrying > 0) {
+  if (g.carrying > 0 || g.carryingFood > 0) {
     candidates.push({
       action: "deliver",
       target: ctx.cave,
       incentiveId: null,
-      score: 0.55 + g.carrying / 20 + diligence * 0.2 + noise(),
+      score: 0.55 + g.carrying / 20 + g.carryingFood / 10 + diligence * 0.2 + noise(),
+      motive: "hauling",
     });
   } else if (ctx.resources.length > 0 && !sulking) {
     const nearest = nearestOf(ctx.grid, g.tile, ctx.resources, ctx.rng);
@@ -78,7 +84,24 @@ export function chooseAction(g: Goblin, ctx: AiContext): Choice {
       target: nearest,
       incentiveId: null,
       score: 0.35 + diligence * 0.4 - dist(nearest) * 0.6 + noise(),
+      motive: "diligent",
     });
+  }
+
+  // Foraging: carry food from a pile back to the warren. An emptier warren
+  // pulls harder.
+  if (g.carrying === 0 && g.carryingFood === 0) {
+    const empty = ctx.warrenCapacity > 0 ? 1 - ctx.warren / ctx.warrenCapacity : 0;
+    for (const inc of ctx.incentives) {
+      if (inc.kind !== "food" || inc.remaining <= 0) continue;
+      candidates.push({
+        action: "forage",
+        target: inc.tile,
+        incentiveId: inc.id,
+        score: 0.3 + diligence * 0.4 + empty * 0.5 - dist(inc.tile) + noise(),
+        motive: "foraging",
+      });
+    }
   }
 
   // Overseer incentives. Shinies pull on greed, drums on bravery.
@@ -90,6 +113,7 @@ export function chooseAction(g: Goblin, ctx: AiContext): Choice {
         target: inc.tile,
         incentiveId: inc.id,
         score: 0.2 + greed * 0.7 + strength / 2 - dist(inc.tile) + noise(),
+        motive: "greedy",
       });
     }
     if (inc.kind === "drum") {
@@ -99,18 +123,27 @@ export function chooseAction(g: Goblin, ctx: AiContext): Choice {
         target: inc.tile,
         incentiveId: inc.id,
         score: 0.25 + bravery * 0.6 + strength / 2 - fear - dist(inc.tile) + noise(),
+        motive: "brave",
       });
     }
   }
 
   // Doing nothing in particular is always on the table.
+  const aimless: Motive = sulking ? "sulking" : "bored";
   candidates.push({
     action: "wander",
     target: randomNearbyFloor(g.tile, ctx.grid, ctx.rng),
     incentiveId: null,
     score: 0.3 + (sulking ? 0.4 : 0) + noise(),
+    motive: aimless,
   });
-  candidates.push({ action: "idle", target: null, incentiveId: null, score: 0.15 + (sulking ? 0.3 : 0) + noise() });
+  candidates.push({
+    action: "idle",
+    target: null,
+    incentiveId: null,
+    score: 0.15 + (sulking ? 0.3 : 0) + noise(),
+    motive: aimless,
+  });
 
   let best = candidates[0] as Choice;
   for (const c of candidates) if (c.score > best.score) best = c;

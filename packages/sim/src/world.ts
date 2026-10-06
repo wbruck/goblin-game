@@ -1,4 +1,4 @@
-import { chooseAction } from "./ai";
+import { chooseAction, SULK_MOOD } from "./ai";
 import { Hasher } from "./checksum";
 import { CubeGrid, FACE_NAMES, sameTile, Terrain, type Tile } from "./cube";
 import { generateMap } from "./mapgen";
@@ -15,20 +15,35 @@ import {
   type Incentive,
   type IncentiveKind,
   type LogEvent,
+  type OverseerIncentiveKind,
   type RecordedCommand,
   type WorldData,
 } from "./types";
 
 export const TICK_MS = 250;
 export const TICKS_PER_SECOND = 1000 / TICK_MS;
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const DEFAULT_CUBE_SIZE = 4;
 
 const LOG_LIMIT = 200;
 const CARRY_CAPACITY = 6;
 const HATCH_GROWTH_PERCENT = 115;
-const FOOD_CHANCE_PER_HAUL = 0.12;
-const HATCH_FOOD_COST = 3;
+
+/** Effort needed for the first hatch; each later hatch costs 15% more. */
+export const FIRST_HATCH_AT = 600;
+/** Food in the warren at the start of a new world. */
+export const WARREN_START = 4;
+/** A hatch needs a full warren and empties it. Capacity grows with each hatch. */
+export const WARREN_START_CAPACITY = 12;
+export const WARREN_CAPACITY_PER_HATCH = 2;
+/** Most food units a forager can carry at once. */
+export const FORAGE_CAPACITY = 3;
+/** Food piles stop sprouting while this many are on the board. */
+export const MAX_FOOD_PILES = 3;
+/** Per-tick chance that a new food pile sprouts (when below the cap). */
+export const FOOD_SPAWN_CHANCE = 1 / 400;
+/** Hunger relief per unit of overflow food a goblin eats at a full warren. */
+const OVERFLOW_HUNGER_RELIEF = 20 * NEED_SCALE;
 
 // Per-tick need changes, in hundredths.
 const HUNGER_PER_TICK = 6;
@@ -38,15 +53,17 @@ const ENERGY_WORK = 8;
 const MOOD_STARVING = 20;
 const MOOD_RECOVER = 5;
 
-export const INCENTIVE_COST: Record<IncentiveKind, number> = {
-  food: 15,
+/** The incentives the overseer can place, in toolbar order. Food only sprouts. */
+export const OVERSEER_INCENTIVES = ["shiny", "drum"] as const;
+
+export const INCENTIVE_COST: Record<OverseerIncentiveKind, number> = {
   shiny: 25,
   drum: 40,
 };
 
 // Strength is in tenths so decay can be an integer per tick.
 const INCENTIVE_DEFAULTS: Record<IncentiveKind, { strength: number; decay: number; remaining: number }> = {
-  food: { strength: 1000, decay: 1, remaining: 8 },
+  food: { strength: 1000, decay: 1, remaining: 6 },
   shiny: { strength: 1000, decay: 1, remaining: 5 },
   drum: { strength: 1200, decay: 5, remaining: 0 },
 };
@@ -106,7 +123,15 @@ export class World {
       cave,
       goblins: [],
       incentives: [],
-      hoard: { effort: 0, lifetimeEffort: 0, nextHatchAt: 60, food: 10, shinies: 0, born: 0 },
+      hoard: {
+        effort: 0,
+        lifetimeEffort: 0,
+        nextHatchAt: FIRST_HATCH_AT,
+        warren: WARREN_START,
+        warrenCapacity: WARREN_START_CAPACITY,
+        shinies: 0,
+        born: 0,
+      },
       nextId: 1,
       log: [],
       history: [],
@@ -170,7 +195,7 @@ export class World {
   checksum(): number {
     const h = new Hasher().int(this.tick).int(this.rng.getState()).int(this.nextId);
     h.int(this.hoard.effort).int(this.hoard.lifetimeEffort).int(this.hoard.nextHatchAt)
-      .int(this.hoard.food).int(this.hoard.shinies).int(this.hoard.born);
+      .int(this.hoard.warren).int(this.hoard.warrenCapacity).int(this.hoard.shinies).int(this.hoard.born);
     h.int(this.goblins.length);
     for (const g of this.goblins) h.goblin(g);
     h.int(this.incentives.length);
@@ -186,6 +211,7 @@ export class World {
   step(): void {
     this.applyCommands();
     this.decayIncentives();
+    this.sproutFood();
     for (const g of this.goblins) this.updateGoblin(g);
     this.tryHatch();
     this.tick++;
@@ -200,6 +226,10 @@ export class World {
   }
 
   private placeIncentive(kind: IncentiveKind, tile: Tile): void {
+    if (kind === "food") {
+      this.addLog("Food cannot be placed; it grows where it likes.", "overseer");
+      return;
+    }
     const cost = INCENTIVE_COST[kind];
     if (!this.grid.isWalkable(tile)) {
       this.addLog(`You cannot put a ${kind} pile inside a wall.`, "overseer");
@@ -212,13 +242,36 @@ export class World {
     this.hoard.effort -= cost;
     const def = INCENTIVE_DEFAULTS[kind];
     this.incentives.push({ id: this.nextId++, kind, tile: { ...tile }, strength: def.strength, remaining: def.remaining });
-    const what = kind === "drum" ? "a war drum" : `a ${kind} pile`;
+    const what = kind === "drum" ? "a war drum" : "a shiny pile";
     this.addLog(`The overseer placed ${what} on the ${FACE_NAMES[tile.f]} face at ${tile.u},${tile.v}.`, "overseer");
   }
 
   private decayIncentives(): void {
     for (const inc of this.incentives) inc.strength -= INCENTIVE_DEFAULTS[inc.kind].decay;
     this.incentives = this.incentives.filter((inc) => inc.strength > 0 && (inc.kind === "drum" || inc.remaining > 0));
+  }
+
+  /**
+   * Mushrooms sprout on their own. The tile is chosen from candidates in
+   * tile-index order, so the pick is stable for a given rng state.
+   */
+  private sproutFood(): void {
+    let piles = 0;
+    for (const inc of this.incentives) if (inc.kind === "food") piles++;
+    if (piles >= MAX_FOOD_PILES || !this.rng.chance(FOOD_SPAWN_CHANCE)) return;
+    const taken = new Set<number>();
+    for (const inc of this.incentives) taken.add(this.grid.index(inc.tile));
+    const candidates: Tile[] = [];
+    for (let i = 0; i < this.grid.tileCount; i++) {
+      if (taken.has(i)) continue;
+      const t = this.grid.tileAt(i);
+      if (this.grid.isWalkable(t) && this.grid.get(t) !== Terrain.Cave) candidates.push(t);
+    }
+    if (candidates.length === 0) return;
+    const tile = this.rng.pick(candidates);
+    const def = INCENTIVE_DEFAULTS.food;
+    this.incentives.push({ id: this.nextId++, kind: "food", tile: { ...tile }, strength: def.strength, remaining: def.remaining });
+    this.addLog(`A patch of mushrooms sprouted on the ${FACE_NAMES[tile.f]} face.`, "info");
   }
 
   private updateGoblin(g: Goblin): void {
@@ -252,12 +305,14 @@ export class World {
       cave: this.nearestCave(g.tile),
       resources: this.resourceTiles,
       incentives: this.incentives,
-      hoardFood: this.hoard.food,
+      warren: this.hoard.warren,
+      warrenCapacity: this.hoard.warrenCapacity,
       rng: this.rng,
     });
     g.action = choice.action;
     g.target = choice.target;
     g.incentiveId = choice.incentiveId;
+    g.motive = choice.motive;
     g.commitment = 8 + this.rng.int(0, 16);
     g.path = [];
     if (choice.refused && this.rng.chance(0.15)) this.addLog(choice.refused, "refusal");
@@ -267,6 +322,7 @@ export class World {
         g.action = "idle";
         g.target = null;
         g.incentiveId = null;
+        g.motive = g.mood < SULK_MOOD ? "sulking" : "bored";
       } else {
         g.path = path;
         g.commitment = Math.max(g.commitment, path.length + 6);
@@ -303,9 +359,17 @@ export class World {
         if (this.grid.get(g.tile) !== Terrain.Cave) break;
         this.hoard.effort += g.carrying;
         this.hoard.lifetimeEffort += g.carrying;
-        // Some hauls turn up something edible, so a working hoard feeds itself.
-        if (this.rng.chance(FOOD_CHANCE_PER_HAUL)) this.hoard.food++;
         g.carrying = 0;
+        if (g.carryingFood > 0) {
+          const stored = Math.min(g.carryingFood, Math.max(0, this.hoard.warrenCapacity - this.hoard.warren));
+          const overflow = g.carryingFood - stored;
+          this.hoard.warren += stored;
+          g.carryingFood = 0;
+          if (overflow > 0) {
+            g.hunger = Math.max(0, g.hunger - overflow * OVERFLOW_HUNGER_RELIEF);
+            this.addLog(`${g.name} ate the overflow.`, "info");
+          }
+        }
         g.mood = Math.min(NEED_MAX, g.mood + 2 * NEED_SCALE);
         g.commitment = 0;
         break;
@@ -316,13 +380,22 @@ export class World {
           inc.remaining--;
           g.hunger = Math.max(0, g.hunger - 60 * NEED_SCALE);
           g.mood = Math.min(NEED_MAX, g.mood + 10 * NEED_SCALE);
-        } else if (this.grid.get(g.tile) === Terrain.Cave && this.hoard.food > 0) {
-          this.hoard.food--;
+        } else if (this.grid.get(g.tile) === Terrain.Cave && this.hoard.warren > 0) {
+          this.hoard.warren--;
           g.hunger = Math.max(0, g.hunger - 50 * NEED_SCALE);
         } else {
           g.mood = Math.max(-NEED_MAX, g.mood - 1 * NEED_SCALE);
         }
         g.commitment = 0;
+        break;
+      }
+      case "forage": {
+        const inc = g.incentiveId !== null ? this.incentiveById(g.incentiveId) : null;
+        if (inc && inc.kind === "food" && inc.remaining > 0 && g.carryingFood < FORAGE_CAPACITY) {
+          inc.remaining--;
+          g.carryingFood++;
+        }
+        if (!inc || inc.remaining <= 0 || g.carryingFood >= FORAGE_CAPACITY) g.commitment = 0;
         break;
       }
       case "rest": {
@@ -356,9 +429,11 @@ export class World {
   }
 
   private tryHatch(): void {
-    while (this.hoard.effort >= this.hoard.nextHatchAt && this.hoard.food >= HATCH_FOOD_COST) {
+    // The warren must be full to hatch, and the hatch uses all of it.
+    while (this.hoard.effort >= this.hoard.nextHatchAt && this.hoard.warren >= this.hoard.warrenCapacity) {
       this.hoard.effort -= this.hoard.nextHatchAt;
-      this.hoard.food -= HATCH_FOOD_COST;
+      this.hoard.warren = 0;
+      this.hoard.warrenCapacity += WARREN_CAPACITY_PER_HATCH;
       this.hoard.nextHatchAt = Math.ceil((this.hoard.nextHatchAt * HATCH_GROWTH_PERCENT) / 100);
       const g = this.spawnGoblin();
       this.addLog(`${g.name} hatched. The hoard numbers ${this.goblins.length}.`, "birth");
@@ -380,6 +455,8 @@ export class World {
       target: null,
       path: [],
       carrying: 0,
+      carryingFood: 0,
+      motive: "none",
       commitment: 0,
       incentiveId: null,
     };

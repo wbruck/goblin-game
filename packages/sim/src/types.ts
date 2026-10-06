@@ -8,7 +8,25 @@ export type ActionKind =
   | "eat"
   | "rest"
   | "loot"
-  | "rally";
+  | "rally"
+  | "forage";
+
+/** Why a goblin is doing what it is doing, for display. Not a decision input. */
+export type Motive =
+  | "hungry"
+  | "tired"
+  | "hauling"
+  | "foraging"
+  | "greedy"
+  | "brave"
+  | "diligent"
+  | "sulking"
+  | "bored"
+  | "none";
+
+export const MOTIVES: readonly Motive[] = [
+  "hungry", "tired", "hauling", "foraging", "greedy", "brave", "diligent", "sulking", "bored", "none",
+];
 
 /** Fixed-point scale for needs and mood: 100 units = 1 point on a 0..100 scale. */
 export const NEED_SCALE = 100;
@@ -39,6 +57,10 @@ export interface Goblin {
   path: Tile[];
   /** Resources carried back to the cave. */
   carrying: number;
+  /** Food units carried from a food pile to the warren (0..FORAGE_CAPACITY). */
+  carryingFood: number;
+  /** What drove the goblin's latest decision. */
+  motive: Motive;
   /** Ticks until the goblin reconsiders what it is doing. */
   commitment: number;
   /** Incentive id this goblin is responding to, if any. */
@@ -46,6 +68,9 @@ export interface Goblin {
 }
 
 export type IncentiveKind = "food" | "shiny" | "drum";
+
+/** Kinds the overseer may place. Food is excluded: it only spawns. */
+export type OverseerIncentiveKind = Exclude<IncentiveKind, "food">;
 
 export interface Incentive {
   id: number;
@@ -64,7 +89,10 @@ export interface Hoard {
   lifetimeEffort: number;
   /** Effort needed before the next goblin hatches. */
   nextHatchAt: number;
-  food: number;
+  /** Food units stored in the warren. Integer, 0..warrenCapacity. */
+  warren: number;
+  /** Most food the warren can hold. Grows with each hatch. */
+  warrenCapacity: number;
   shinies: number;
   born: number;
 }
@@ -85,7 +113,7 @@ export interface RecordedCommand {
 }
 
 export interface WorldData {
-  version: 3;
+  version: 4;
   seed: number;
   startingGoblins: number;
   /** Tiles per cube side. */

@@ -1,7 +1,11 @@
-import type { Goblin, Incentive } from "./types";
+import type { Goblin, Incentive, Motive } from "./types";
 
 const ACTION_CODE: Record<Goblin["action"], number> = {
-  idle: 0, wander: 1, gather: 2, deliver: 3, eat: 4, rest: 5, loot: 6, rally: 7,
+  idle: 0, wander: 1, gather: 2, deliver: 3, eat: 4, rest: 5, loot: 6, rally: 7, forage: 8,
+};
+
+export const MOTIVE_CODE: Record<Motive, number> = {
+  none: 0, hungry: 1, tired: 2, hauling: 3, foraging: 4, greedy: 5, brave: 6, diligent: 7, sulking: 8, bored: 9,
 };
 
 /**
@@ -13,6 +17,7 @@ const ACTION_CODE: Record<Goblin["action"], number> = {
 export const GOBLIN_RECORD_FIELDS = [
   "id", "face", "u", "v", "hunger", "energy", "mood", "greed", "bravery", "diligence",
   "action", "targetFace", "targetU", "targetV", "carrying", "commitment", "incentiveId", "pathLength",
+  "carryingFood", "motive",
 ] as const;
 
 export function goblinRecord(g: Goblin): Int32Array {
@@ -35,6 +40,8 @@ export function goblinRecord(g: Goblin): Int32Array {
   r[15] = g.commitment;
   r[16] = g.incentiveId ?? -1;
   r[17] = g.path.length;
+  r[18] = g.carryingFood;
+  r[19] = MOTIVE_CODE[g.motive];
   return r;
 }
 

@@ -37,10 +37,20 @@
           <progress id="bank-bar" value="0" max="1"></progress>
           <p class="hint">You play forward at speed. Every move is recorded with its tick. A segment holds 12 hours of game time; later a server will replay it with other hoards' moves mixed in.</p>
         </section>
+        <section id="warren-section">
+          <h2>Warren</h2>
+          <progress id="warren-bar" value="0" max="1"></progress>
+          <p id="warren-text" class="hint"></p>
+          <p class="hint">Mushrooms sprout on their own. Goblins forage them home to fill the warren; a new goblin hatches only when the warren is full, and hatching empties it.</p>
+        </section>
         <section id="tools">
           <h2>Overseer</h2>
           <p class="hint">Pick a thing to place, then click a tile on any face. Goblins decide for themselves whether to care, and they walk across edges.</p>
           <div id="tool-buttons"></div>
+        </section>
+        <section id="roster-section">
+          <h2>Goblins <span id="roster-count"></span></h2>
+          <ul id="roster"></ul>
         </section>
         <section id="log-section">
           <h2>What the goblins did</h2>

@@ -2,8 +2,14 @@
 
 A web game about overseeing an unruly goblin hoard. The hoard grows with
 "effort", which goblins produce over game time by gathering and hauling.
-The overseer never gives orders: you place food, shinies, and war drums on
-the board, and each goblin decides for itself whether to care.
+The overseer never gives orders: you place shinies and war drums on the
+board, and each goblin decides for itself whether to care. Food you cannot
+place. Mushrooms sprout on their own, and goblins forage them back to the
+warren, a food store in the cave. A new goblin hatches only when the hoard
+has 600 effort (more for each later hatch) and the warren is full. The
+hatch empties the warren, and the warren grows a little each time.
+A roster shows one node per goblin with what it is doing and why (hungry,
+tired, hauling, foraging, greedy, brave, diligent, sulking, bored).
 
 The board is a cube, 4 tiles to a side, and goblins walk across the edges.
 Drag the cube to spin it, or use the arrow buttons.
